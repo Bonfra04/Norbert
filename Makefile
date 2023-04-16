@@ -14,10 +14,13 @@ all: clean $(OBJ_FILES)
 	@echo "Linking"
 	@gcc $(OBJ_FILES) -o $(DIR_BIN)/Norbert
 
+tests: TEST = -D TESTS
+tests: all
+
 clean:
 	@rm -rf $(DIR_BIN) $(DIR_OBJ)
 
 $(OBJ_FILES): $(DIR_OBJ)/%.o: %.c
 	@echo "Compiling $(shell basename $<)"
 	@mkdir -p $(shell dirname $@)
-	@gcc $(CC_FLAGS) $< -o $@
+	@gcc $(CC_FLAGS) $(TEST) $< -o $@

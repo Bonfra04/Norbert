@@ -4,5 +4,8 @@
         "bin-int/": true,
         "Makefile": true,
         ".gitignore": true,
-    }
+    },
+    "C_Cpp.default.defines": [
+        "TESTS"
+    ]
 }

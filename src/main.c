@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "tests/perform.h"
+
 int main()
 {
     // freopen("/dev/null", "w", stderr);

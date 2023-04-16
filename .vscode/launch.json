@@ -8,6 +8,14 @@
             "target": "${workspaceFolder}/bin/Norbert",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "make"
+        },
+        {
+            "name": "Test Norbert",
+            "type": "gdb",
+            "request": "launch",
+            "target": "${workspaceFolder}/bin/Norbert",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Tests"
         }
     ]
 }

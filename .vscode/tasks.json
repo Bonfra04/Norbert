@@ -17,6 +17,19 @@
                 "focus": true,
                 "reveal": "always"
             }
+        },
+        {
+            "label": "Tests",
+            "type": "shell",
+            "command": "make tests",
+            "problemMatcher": [],
+            "presentation": {
+                "clear": true,
+                "close": false,
+                "echo": true,
+                "focus": true,
+                "reveal": "always"
+            }
         }
     ],
 }
