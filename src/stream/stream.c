@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <assert.h>
+#include <wctype.h>
 
 stream_t stream_new(consumable_t source)
 {
@@ -57,19 +58,19 @@ size_t stream_reconsume_n(stream_t* stream, size_t n)
     return i;
 }
 
-bool stream_match(stream_t* stream, wchar_t* str, bool consume)
+bool stream_match(stream_t* stream, wchar_t* str, bool consume, bool case_sensitive)
 {
     size_t i;
     for(i = 0; str[i] != L'\0'; i++)
     {
         wchar_t c = stream_consume(stream);
-        if(c != str[i])
+        if(case_sensitive ? (c != str[i]) : (towlower(c) != towlower(str[i])))
         {
-            stream_reconsume_n(stream, i);
+            stream_reconsume_n(stream, i + 1);
             return false;
         }
     }
     if(!consume)
-        stream_reconsume_n(stream, i);
+        stream_reconsume_n(stream, i + 1);
     return true;
 }
