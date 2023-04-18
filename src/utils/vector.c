@@ -39,3 +39,9 @@ void vector_append(void* vector, void* value)
     memcpy((uint8_t*)vector + data->length * data->strie, value, data->strie);
     data->length++;
 }
+
+void vector_free(void* vector)
+{
+    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
+    free(data);
+}
