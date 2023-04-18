@@ -23,6 +23,8 @@ wstring_t wstring_new()
 
 size_t wstring_length(const wstring_t str)
 {
+    if(!str)
+        return 0;
     wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
     return data->length;
 }
@@ -44,6 +46,15 @@ void wstring_append(wstring_t str, wchar_t append)
     data->data[data->length] = append;
     data->data[data->length + 1] = L'\x0000';
     data->length++;
+}
+
+void wstring_appends(wstring_t str, wchar_t* append)
+{
+    while(*append)
+    {
+        wstring_append(str, *append);
+        append++;
+    }
 }
 
 void wstring_clear(wstring_t str)
