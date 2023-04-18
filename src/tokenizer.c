@@ -53,6 +53,23 @@ typedef enum states
     state_CommentEndDash,
     state_CommentEndBang,
 
+    state_DOCTYPE,
+    state_BeforeDOCTYPEName,
+    state_DOCTYPEName,
+    state_AfterDOCTYPEName,
+    state_AfterDOCTYPEPublicKeyword,
+    state_AfterDOCTYPESystemKeyword,
+    state_BogusDOCTYPE,
+    state_BeforeDOCTYPEPublicIdentifier,
+    state_DOCTYPEPublicIdentifierDoubleQuoted,
+    state_DOCTYPEPublicIdentifierSingleQuoted,
+    state_AfterDOCTYPEPublicIdentifier,
+    state_BetweenDOCTYPEPublicAndSystemIdentifiers,
+    state_DOCTYPESystemIdentifierDoubleQuoted,
+    state_DOCTYPESystemIdentifierSingleQuoted,
+    state_BeforeDOCTYPESystemIdentifier,
+    state_AfterDOCTYPESystemIdentifier,
+
     state_NONE,
 } states_t;
 
@@ -84,7 +101,7 @@ static void parser_error(const char* error)
 
 #define on_wchar(condition) (stream_current(stream) == (wchar_t)(uint64_t)(condition))
 #define on_function(condition) (((bool(*)(wchar_t))(condition))(stream_current(stream)))
-#define on_wstring(condition) (stream_match(stream, (wchar_t*)condition, true))
+#define on_wstring(condition) (stream_match(stream, (wchar_t*)condition, true, false))
 
 #define checker(condition) _Generic((condition), wchar_t: on_wchar(condition), wchar_t*: on_wstring(condition), default: on_function(condition))
 #define on(condition) if(checker(condition))
@@ -95,7 +112,7 @@ static void parser_error(const char* error)
 #define reconsumeIn(target) do { stream_reconsume(stream); switchTo(target); } while(0)
 #define reconsumeInReturnState() do { stream_reconsume(stream); state = returnState; goto emit_token; } while(0)
 
-#define Token(ttype, ...) ({token_t* _ = malloc(sizeof(token_t)); *_ = (token_t){.type=token_##ttype, __VA_ARGS__}; _; })
+#define Token(ttype, ...) ({token_t* _ = calloc(sizeof(token_t), 1); *_ = (token_t){.type=token_##ttype, __VA_ARGS__}; _; })
 
 #define prepareToken(ttype, ...) do { currentToken = (token_t*)Token(ttype, __VA_ARGS__); } while(0)
 #define finalizeToken() do { queue_push(&tokens_queue, (uint64_t)currentToken); currentToken = NULL; } while(0)
@@ -105,9 +122,9 @@ static void parser_error(const char* error)
 #define emitEOFToken() emitToken(eof);
 #define emitCurrentCharacterToken() emitToken(character, .value = stream_current(stream))
 
-#define prepareAttribute() do { attribute_t _ = { wstring_new(), wstring_new() }; vector_append(currentToken->attributes, &_); } while(0)
-#define appendAttributeName(c) do { attribute_t* _ = (attribute_t*)currentToken->attributes; wstring_append(_[vector_length(_) - 1].name, c); } while(0)
-#define appendAttributeValue(c) do { attribute_t* _ = (attribute_t*)currentToken->attributes; wstring_append(_[vector_length(_) - 1].value, c); } while(0)
+#define prepareAttribute() do { token_attribute_t _ = { wstring_new(), wstring_new() }; vector_append(currentToken->attributes, &_); } while(0)
+#define appendAttributeName(c) do { token_attribute_t* _ = (token_attribute_t*)currentToken->attributes; wstring_append(_[vector_length(_) - 1].name, c); } while(0)
+#define appendAttributeValue(c) do { token_attribute_t* _ = (token_attribute_t*)currentToken->attributes; wstring_append(_[vector_length(_) - 1].value, c); } while(0)
 
 #define consumedAsPartOfAnAttribute() (returnState == state_AttributeValueDoubleQuoted || returnState == state_AttributeValueSingleQuoted || returnState == state_AttributeValueUnquoted)
 
@@ -435,7 +452,7 @@ token_t* tokenizer_emit_token()
             }
             on(AsciiAlpha)
             {
-                prepareToken(start_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(attribute_t)));
+                prepareToken(start_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
                 reconsumeIn(TagName);
             }
             on(L'?')
@@ -463,7 +480,7 @@ token_t* tokenizer_emit_token()
             stream_consume(stream);
             on(AsciiAlpha)
             {
-                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(attribute_t)));
+                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
                 reconsumeIn(TagName);
             }
             on(L'>')
@@ -853,7 +870,10 @@ token_t* tokenizer_emit_token()
                 prepareToken(comment, .data = wstring_new());
                 switchTo(CommentStart);
             }
-            // TODO: L"DOCTYPE"
+            on(L"DOCTYPE")
+            {
+                switchTo(DOCTYPE);
+            }
             // TODO: L"[CDATA["
             anythingElse()
             {
@@ -1109,8 +1129,590 @@ token_t* tokenizer_emit_token()
             }
         }
 
+        matchState(DOCTYPE)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                switchTo(BeforeDOCTYPEName);
+            }
+            on(L'>')
+            {
+                reconsumeIn(BeforeDOCTYPEName);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                prepareToken(doctype, .forceQuirks = true);
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-whitespace-before-doctype-name");
+                reconsumeIn(BeforeDOCTYPEName);
+            }
+        }
+
+        matchState(BeforeDOCTYPEName)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                redo();
+            }
+            on(AsciiUpperAlpha)
+            {
+                prepareToken(doctype, .name = wstring_new());
+                wstring_append(currentToken->name, stream_current(stream) + 0x20);
+                switchTo(DOCTYPEName);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                prepareToken(doctype, .name = wstring_new());
+                wstring_append(currentToken->name, L'\uFFFD');
+                switchTo(DOCTYPEName);
+            }
+            on(L'>')
+            {
+                parser_error("missing-doctype-name");
+                prepareToken(doctype, .forceQuirks = true);
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                prepareToken(doctype, .forceQuirks = true);
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                prepareToken(doctype, .name = wstring_new());
+                wstring_append(currentToken->name, stream_current(stream));
+                switchTo(DOCTYPEName);
+            }
+        }
+
+        matchState(DOCTYPEName)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                switchTo(AfterDOCTYPEName);
+            }
+            on(L'>')
+            {
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(AsciiUpperAlpha)
+            {
+                wstring_append(currentToken->name, stream_current(stream) + 0x20);
+                redo();
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                wstring_append(currentToken->name, L'\uFFFD');
+                redo();
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                wstring_append(currentToken->name, stream_current(stream));
+                redo();
+            }
+        }
+
+        matchState(AfterDOCTYPEName)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                redo();
+            }
+            on(L'>')
+            {
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                if(towlower(stream_current(stream)) == L's')
+                {
+                    on(L"YSTEM")
+                    {
+                        switchTo(AfterDOCTYPESystemKeyword);
+                    }
+                }
+                else if(towlower(stream_current(stream)) == L'p')
+                {
+                    on(L"UBLIC")
+                    {
+                        switchTo(AfterDOCTYPEPublicKeyword);
+                    }
+                }
+                else
+                {
+                    parser_error("expected-space-or-right-bracket-in-doctype");
+                    currentToken->forceQuirks = true;
+                    reconsumeIn(BogusDOCTYPE);
+                }
+            }
+        }
+
+        matchState(AfterDOCTYPEPublicKeyword)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                switchTo(BeforeDOCTYPEPublicIdentifier);
+            }
+            on(L'"')
+            {
+                parser_error("missing-whitespace-after-doctype-public-keyword");
+                currentToken->public_identifier = wstring_new();
+                switchTo(DOCTYPEPublicIdentifierDoubleQuoted);
+            }
+            on(L'\'')
+            {
+                parser_error("missing-whitespace-after-doctype-public-keyword");
+                currentToken->public_identifier = wstring_new();
+                switchTo(DOCTYPEPublicIdentifierSingleQuoted);
+            }
+            on(L'>')
+            {
+                parser_error("missing-doctype-public-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-quote-before-doctype-public-identifier");
+                currentToken->forceQuirks = true;
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(BeforeDOCTYPEPublicIdentifier)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                redo();
+            }
+            on(L'"')
+            {
+                currentToken->public_identifier = wstring_new();
+                switchTo(DOCTYPEPublicIdentifierDoubleQuoted);
+            }
+            on(L'\'')
+            {
+                currentToken->public_identifier = wstring_new();
+                switchTo(DOCTYPEPublicIdentifierSingleQuoted);
+            }
+            on(L'>')
+            {
+                parser_error("missing-doctype-public-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-quote-before-doctype-public-identifier");
+                currentToken->forceQuirks = true;
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(DOCTYPEPublicIdentifierDoubleQuoted)
+        {
+            stream_consume(stream);
+            on(L'"')
+            {
+                switchTo(AfterDOCTYPEPublicIdentifier);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                wstring_append(currentToken->public_identifier, L'\uFFFD');
+                redo();
+            }
+            on(L'>')
+            {
+                parser_error("abrupt-doctype-public-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                wstring_append(currentToken->public_identifier, stream_current(stream));
+                redo();
+            }
+        }
+
+        matchState(DOCTYPEPublicIdentifierSingleQuoted)
+        {
+            stream_consume(stream);
+            on(L'\'')
+            {
+                switchTo(AfterDOCTYPEPublicIdentifier);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                wstring_append(currentToken->public_identifier, L'\uFFFD');
+                redo();
+            }
+            on(L'>')
+            {
+                parser_error("abrupt-doctype-public-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                wstring_append(currentToken->public_identifier, stream_current(stream));
+                redo();
+            }
+        }
+
+        matchState(AfterDOCTYPEPublicIdentifier)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                switchTo(BetweenDOCTYPEPublicAndSystemIdentifiers);
+            }
+            on(L'>')
+            {
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(L'"')
+            {
+                parser_error("missing-whitespace-between-doctype-public-and-system-identifiers");
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierDoubleQuoted);
+            }
+            on(L'\'')
+            {
+                parser_error("missing-whitespace-between-doctype-public-and-system-identifiers");
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierSingleQuoted);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-quote-before-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(BetweenDOCTYPEPublicAndSystemIdentifiers)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                redo();
+            }
+            on(L'>')
+            {
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(L'"')
+            {
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierDoubleQuoted);
+            }
+            on(L'\'')
+            {
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierSingleQuoted);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-quote-before-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(AfterDOCTYPESystemKeyword)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                switchTo(BeforeDOCTYPESystemIdentifier);
+            }
+            on(L'"')
+            {
+                parser_error("missing-whitespace-after-doctype-system-keyword");
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierDoubleQuoted);
+            }
+            on(L'\'')
+            {
+                parser_error("missing-whitespace-after-doctype-system-keyword");
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierSingleQuoted);
+            }
+            on(L'>')
+            {
+                parser_error("missing-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-quote-before-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(BeforeDOCTYPESystemIdentifier)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                redo();
+            }
+            on(L'"')
+            {
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierDoubleQuoted);
+            }
+            on(L'\'')
+            {
+                currentToken->system_identfier = wstring_new();
+                switchTo(DOCTYPESystemIdentifierSingleQuoted);
+            }
+            on(L'>')
+            {
+                parser_error("missing-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("missing-quote-before-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(DOCTYPESystemIdentifierDoubleQuoted)
+        {
+            stream_consume(stream);
+            on(L'"')
+            {
+                switchTo(AfterDOCTYPESystemIdentifier);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                wstring_append(currentToken->system_identfier, L'\uFFFD');
+                redo();
+            }
+            on(L'>')
+            {
+                parser_error("abrupt-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                wstring_append(currentToken->system_identfier, stream_current(stream));
+                redo();
+            }
+        }
+
+        matchState(DOCTYPESystemIdentifierSingleQuoted)
+        {
+            stream_consume(stream);
+            on(L'\'')
+            {
+                switchTo(AfterDOCTYPESystemIdentifier);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                wstring_append(currentToken->system_identfier, L'\uFFFD');
+                redo();
+            }
+            on(L'>')
+            {
+                parser_error("abrupt-doctype-system-identifier");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                wstring_append(currentToken->system_identfier, stream_current(stream));
+                redo();
+            }
+        }
+
+        matchState(AfterDOCTYPESystemIdentifier)
+        {
+            stream_consume(stream);
+            on(AsciiWhitespace)
+            {
+                redo();
+            }
+            on(L'>')
+            {
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(-1)
+            {
+                parser_error("eof-in-doctype");
+                currentToken->forceQuirks = true;
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                parser_error("unexpected-char-after-doctype-system-identifier");
+                reconsumeIn(BogusDOCTYPE);
+            }
+        }
+
+        matchState(BogusDOCTYPE)
+        {
+            stream_consume(stream);
+            on(L'>')
+            {
+                finalizeToken();
+                switchTo(Data);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                redo();
+            }
+            on(-1)
+            {
+                finalizeToken();
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                redo();
+            }
+        }
+
     default:
         printf("Unknown state %d\n", state);
         exit(-1);
     }
+}
+
+void free_token(token_t* token)
+{
+    if(!token)
+        return;
+
+    if (token->name) wstring_free(token->name);
+    if (token->attributes) vector_free(token->attributes);
+    if (token->system_identfier) wstring_free(token->system_identfier);
+    if (token->public_identifier) wstring_free(token->public_identifier);
+    free(token);
 }

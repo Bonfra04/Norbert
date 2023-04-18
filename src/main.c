@@ -14,7 +14,7 @@ int main()
     // freopen("/dev/null", "w", stderr);
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    stream_t input_stream = stream_new(wsconsumable_new(L"o<!--ciao--> <a href=\"&lt;&gt;ciao\">ciao</a>"));
+    stream_t input_stream = stream_new(wsconsumable_new(L"<!DOCTYPE html PUBLIC 'mario' 'massimo'>o<!--ciao--> <a href=\"&lt;&gt;ciao\">ciao</a>"));
     tokenizer_init(&input_stream);
     
     bool goon = true;
@@ -34,7 +34,7 @@ int main()
             wprintf(L"\033[1;32m<%ls", token->name);
             for (size_t i = 0; i < len; i++)
             {
-                attribute_t* attr = &token->attributes[i];
+                token_attribute_t* attr = &token->attributes[i];
                 wprintf(L" %ls", attr->name, attr->value);
                 if(wstring_length(attr->value) > 0)
                     wprintf(L"=\"%ls\"", attr->value);
@@ -51,12 +51,24 @@ int main()
             wprintf(L"\033[1;33m<!--%ls-->\033[0m", token->data);
             break;
 
+        case token_doctype:
+            wprintf(L"\033[1;34m<!DOCTYPE %ls", token->name);
+            if(wstring_length(token->public_identifier) > 0)
+                wprintf(L" PUBLIC \"%ls\"", token->public_identifier);
+            if(wstring_length(token->system_identfier) > 0)
+                if(wstring_length(token->public_identifier) > 0)
+                    wprintf(L" \"%ls\"", token->system_identfier);
+                else
+                    wprintf(L" SYSTEM \"%ls\"", token->system_identfier);
+            wprintf(L">\033[0m");
+            break;
+
         case token_eof:
             goon = false;
             break;
         }
 
-        free(token);
+        free_token(token);
     }
     wprintf(L"\033[0m\n");
 }
