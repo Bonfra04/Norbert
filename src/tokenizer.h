@@ -24,20 +24,33 @@ typedef struct token_attribute
 typedef struct token
 {
     token_type_t type;
-    wchar_t value; // character
     union
     {
-        wchar_t* name; // character / doctype
-        wchar_t* data; // comment
-    };
-    union
-    {
-        bool selfClosing; // tag_token
-        bool forceQuirks; // doctype
-    };
-    token_attribute_t* attributes; // tag_token
-    wchar_t* public_identifier; // doctype
-    wchar_t* system_identfier; // doctype
+        struct
+        {
+            wchar_t value;
+        } character;
+        struct
+        {
+            wchar_t* data;
+        } comment;
+        struct
+        {
+            wchar_t* name;
+            bool selfClosing;
+            token_attribute_t* attributes;
+        } tag, start_tag, end_tag;
+        struct
+        {
+            wchar_t* name;
+            bool forceQuirks;
+            wchar_t* public_identifier;
+            wchar_t* system_identifier;
+        } doctype;
+        struct
+        {
+        } eof;
+    } as;
 } token_t;
 
 void tokenizer_init(stream_t* html);
