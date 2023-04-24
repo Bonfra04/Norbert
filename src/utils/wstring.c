@@ -50,11 +50,12 @@ void wstring_append(wstring_t str, wchar_t append)
 
 void wstring_appends(wstring_t str, wchar_t* append)
 {
-    while(*append)
-    {
-        wstring_append(str, *append);
-        append++;
-    }
+    if(append)
+        while(*append)
+        {
+            wstring_append(str, *append);
+            append++;
+        }
 }
 
 void wstring_clear(wstring_t str)
