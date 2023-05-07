@@ -21,6 +21,20 @@ wstring_t wstring_new()
     return data->data;
 }
 
+wstring_t wstring_copy(const wstring_t str)
+{
+    if(!str)
+        return NULL;
+    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
+    wsdata_t* copy = (wsdata_t*)malloc(sizeof(wsdata_t) + sizeof(wchar_t) * data->capacity);
+    copy->capacity = data->capacity;
+    copy->length = data->length;
+    for (size_t i = 0; i < data->length; i++)
+        copy->data[i] = data->data[i];
+    copy->data[data->length] = L'\x0000';
+    return copy->data;
+}
+
 size_t wstring_length(const wstring_t str)
 {
     if(!str)
