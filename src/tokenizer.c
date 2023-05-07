@@ -11,68 +11,6 @@
 #include <stdlib.h>
 #include <wctype.h>
 
-typedef enum states
-{
-    state_Data,
-
-    state_CharacterReference,
-    state_NumericCharacterReference,
-    state_NamedCharacterReference,
-    state_AmbiguousAmpersand,
-    state_HexadecimalCharacterReferenceStart,
-    state_DecimalCharacterReferenceStart,
-    state_HexadecimalCharacterReference,
-    state_DecimalCharacterReference,
-    state_NumericCharacterReferenceEnd,
-
-    state_TagOpen,
-    state_EndTagOpen,
-    state_TagName,
-    state_SelfClosingStartTag,
-
-    state_BeforeAttributeName,
-    state_AttributeName,
-    state_AfterAttributeName,
-    state_BeforeAttributeValue,
-    state_AttributeValueDoubleQuoted,
-    state_AttributeValueSingleQuoted,
-    state_AttributeValueUnquoted,
-    state_AfterAttributeValueQuoted,
-
-    state_MarkupDeclarationOpen,
-    
-    state_CommentStart,
-    state_BogusComment,
-    state_CommentStartDash,
-    state_Comment,
-    state_CommentEnd,
-    state_CommentLessThanSign,
-    state_CommentLessThanSignBang,
-    state_CommentLessThanSignBangDash,
-    state_CommentLessThanSignBangDashDash,
-    state_CommentEndDash,
-    state_CommentEndBang,
-
-    state_DOCTYPE,
-    state_BeforeDOCTYPEName,
-    state_DOCTYPEName,
-    state_AfterDOCTYPEName,
-    state_AfterDOCTYPEPublicKeyword,
-    state_AfterDOCTYPESystemKeyword,
-    state_BogusDOCTYPE,
-    state_BeforeDOCTYPEPublicIdentifier,
-    state_DOCTYPEPublicIdentifierDoubleQuoted,
-    state_DOCTYPEPublicIdentifierSingleQuoted,
-    state_AfterDOCTYPEPublicIdentifier,
-    state_BetweenDOCTYPEPublicAndSystemIdentifiers,
-    state_DOCTYPESystemIdentifierDoubleQuoted,
-    state_DOCTYPESystemIdentifierSingleQuoted,
-    state_BeforeDOCTYPESystemIdentifier,
-    state_AfterDOCTYPESystemIdentifier,
-
-    state_NONE,
-} states_t;
-
 static stream_t* stream;
 static states_t state;
 static states_t returnState;
@@ -80,6 +18,7 @@ static wstring_t temporaryBuffer;
 static wchar_t characterReferenceCode;
 static queue_t tokens_queue;
 static token_t* currentToken;
+static wstring_t lastStartTagName;
 
 void tokenizer_init(stream_t* _stream)
 {
@@ -90,6 +29,7 @@ void tokenizer_init(stream_t* _stream)
     characterReferenceCode = L'\x0000';
     tokens_queue = queue_create();
     currentToken = NULL;
+    lastStartTagName = wstring_new();
 }
 
 #define matchState(state) case state_##state:
@@ -147,11 +87,34 @@ for(size_t i = 0; i < len; i++)                         \
         enqueueToken(character, temporaryBuffer[i]);    \
 } while(0)
 
+#define emitTemporaryBufferAsCharacters() do {      \
+size_t len = wcslen(temporaryBuffer);               \
+for(size_t i = 0; i < len; i++)                     \
+    enqueueToken(character, temporaryBuffer[i]);    \
+} while(0)
+
+#define isAppropriateEndTagToken(token) (wcscmp(token->as.tag.name, lastStartTagName) == 0)
+
+void tokenizer_switch_to(states_t targetState)
+{
+    state = targetState;
+}
+
 token_t* tokenizer_emit_token()
 {
     emit_token:
     if(tokens_queue.size > 0)
-        return (token_t*)queue_pop(&tokens_queue);
+    {
+        token_t* result = (token_t*)queue_pop(&tokens_queue);
+
+        if(result->type == token_start_tag)
+        {
+            wstring_clear(lastStartTagName);
+            wstring_appends(lastStartTagName, result->as.tag.name);
+        }
+
+        return result;
+    }
 
     switch (state)
     {
@@ -460,7 +423,7 @@ token_t* tokenizer_emit_token()
             }
             on(AsciiAlpha)
             {
-                prepareToken(start_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                prepareToken(start_tag, .name = wstring_new(), .selfClosing = false, .ackSelfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
                 reconsumeIn(TagName);
             }
             on(L'?')
@@ -1707,15 +1670,256 @@ token_t* tokenizer_emit_token()
             }
         }
 
+        matchState(RCDATA)
+        {
+            consumeInputCharacter();
+            on(L'&')
+            {
+                returnState = state_RCDATA;
+                switchTo(CharacterReference);
+            }
+            on(L'<')
+            {
+                switchTo(RCDATALessThanSign);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                emitToken(character, L'\uFFFD');
+            }
+            on(-1)
+            {
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                emitCurrentCharacterToken();
+            }
+        }
+
+        matchState(RCDATALessThanSign)
+        {
+            consumeInputCharacter();
+            on(L'/')
+            {
+                temporaryBufferClear();
+                switchTo(RCDATAEndTagOpen);
+            }
+            anythingElse()
+            {
+                enqueueToken(character, L'<');
+                reconsumeIn(RCDATA);
+            }
+        }
+
+        matchState(RCDATAEndTagOpen)
+        {
+            consumeInputCharacter();
+            on(AsciiAlpha)
+            {
+                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                reconsumeIn(RCDATAEndTagName);
+            }
+            anythingElse()
+            {
+                enqueueToken(character, L'<');
+                enqueueToken(character, L'/');
+                reconsumeIn(RCDATA);
+            }
+        }
+
+        matchState(RCDATAEndTagName)
+        {
+            consumeInputCharacter();
+            on(AsciiWhitespace)
+            {
+                if(isAppropriateEndTagToken(currentToken))
+                    switchTo(BeforeAttributeName);
+                else
+                {
+                    enqueueToken(character, L'<');
+                    enqueueToken(character, L'/');
+                    emitTemporaryBufferAsCharacters();
+                    reconsumeIn(RCDATA);
+                }
+            }
+            on(L'/')
+            {
+                if(isAppropriateEndTagToken(currentToken))
+                    switchTo(SelfClosingStartTag);
+                else
+                {
+                    enqueueToken(character, L'<');
+                    enqueueToken(character, L'/');
+                    emitTemporaryBufferAsCharacters();
+                    reconsumeIn(RCDATA);
+                }
+            }
+            on(L'>')
+            {
+                if(isAppropriateEndTagToken(currentToken)) 
+                {
+                    finalizeToken();
+                    switchTo(Data);
+                }
+                else
+                {
+                    enqueueToken(character, L'<');
+                    enqueueToken(character, L'/');
+                    emitTemporaryBufferAsCharacters();
+                    reconsumeIn(RCDATA);
+                }
+            }
+            on(AsciiUpperAlpha)
+            {
+                appendTagName(towlower(currentInputCharacter));
+                temporaryBufferAppend(currentInputCharacter);
+                redo();
+            }
+            on(AsciiLowerAlpha)
+            {
+                appendTagName(currentInputCharacter);
+                temporaryBufferAppend(currentInputCharacter);
+                redo();
+            }
+            anythingElse()
+            {
+                enqueueToken(character, L'<');
+                enqueueToken(character, L'/');
+                emitTemporaryBufferAsCharacters();
+                reconsumeIn(RCDATA);
+            }
+        }
+
+        matchState(RAWTEXT)
+        {
+            consumeInputCharacter();
+            on(L'<')
+            {
+                switchTo(RAWTEXTLessThanSign);
+            }
+            on(L'\0')
+            {
+                parser_error("unexpected-null-character");
+                emitToken(character, L'\uFFFD');
+            }
+            on(-1)
+            {
+                emitEOFToken();
+            }
+            anythingElse()
+            {
+                emitCurrentCharacterToken();
+            }
+        }
+
+        matchState(RAWTEXTLessThanSign)
+        {
+            consumeInputCharacter();
+            on(L'/')
+            {
+                temporaryBufferClear();
+                switchTo(RAWTEXTEndTagOpen);
+            }
+            anythingElse()
+            {
+                enqueueToken(character, L'<');
+                reconsumeIn(RAWTEXT);
+            }
+        }
+
+        matchState(RAWTEXTEndTagOpen)
+        {
+            consumeInputCharacter();
+            on(AsciiAlpha)
+            {
+                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                reconsumeIn(RAWTEXTEndTagName);
+            }
+            anythingElse()
+            {
+                enqueueToken(character, L'<');
+                enqueueToken(character, L'/');
+                reconsumeIn(RAWTEXT);
+            }
+        }
+
+        matchState(RAWTEXTEndTagName)
+        {
+            on(AsciiWhitespace)
+            {
+                if(isAppropriateEndTagToken(currentToken))
+                    switchTo(BeforeAttributeName);
+                else
+                {
+                    enqueueToken(character, L'<');
+                    enqueueToken(character, L'/');
+                    emitTemporaryBufferAsCharacters();
+                    reconsumeIn(RAWTEXT);
+                }
+            }
+            on(L'/')
+            {
+                if(isAppropriateEndTagToken(currentToken))
+                    switchTo(SelfClosingStartTag);
+                else
+                {
+                    enqueueToken(character, L'<');
+                    enqueueToken(character, L'/');
+                    emitTemporaryBufferAsCharacters();
+                    reconsumeIn(RAWTEXT);
+                }
+            }
+            on(L'>')
+            {
+                if(isAppropriateEndTagToken(currentToken)) 
+                {
+                    finalizeToken();
+                    switchTo(Data);
+                }
+                else
+                {
+                    enqueueToken(character, L'<');
+                    enqueueToken(character, L'/');
+                    emitTemporaryBufferAsCharacters();
+                    reconsumeIn(RAWTEXT);
+                }
+            }
+            on(AsciiUpperAlpha)
+            {
+                appendTagName(towlower(currentInputCharacter));
+                temporaryBufferAppend(currentInputCharacter);
+                redo();
+            }
+            on(AsciiLowerAlpha)
+            {
+                appendTagName(currentInputCharacter);
+                temporaryBufferAppend(currentInputCharacter);
+                redo();
+            }
+            anythingElse()
+            {
+                enqueueToken(character, L'<');
+                enqueueToken(character, L'/');
+                emitTemporaryBufferAsCharacters();
+                reconsumeIn(RAWTEXT);
+            }
+        }
+
     default:
         exit(-1);
     }
 }
 
-void free_token(token_t* token)
+void tokenizer_dispose_token(token_t* token)
 {
     if(!token)
         return;
+
+    if(token->type == token_start_tag && token->as.start_tag.selfClosing && token->as.start_tag.ackSelfClosing == false)
+    {
+        parser_error("non-void-html-element-start-tag-with-trailing-solidus");
+    }
 
     switch (token->type)
     {
