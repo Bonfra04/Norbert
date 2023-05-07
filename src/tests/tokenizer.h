@@ -16,10 +16,10 @@ Test(singleCharacterToken)
         stream_t input_stream = stream_new(wsconsumable_new(str));
         tokenizer_init(&input_stream);
 
-        token_t* character = tokenizer_emit_token();
+        token_t* token = tokenizer_emit_token();
 
-        Assert(character->type == token_character);
-        Assert(character->value == chr);
+        Assert(token->type == token_character);
+        Assert(token->as.character.value == chr);
 
         token_t* eof = tokenizer_emit_token();
         Assert(eof->type == token_eof);
