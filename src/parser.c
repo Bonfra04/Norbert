@@ -28,6 +28,8 @@ typedef enum insertion_modes
     insertion_mode_AfterHead,
     
     insertion_mode_InBody,
+    insertion_mode_AfterBody,
+    insertion_mode_AfterAfterBody,
     
     insertion_mode_InTemplate,
 
@@ -61,6 +63,7 @@ typedef enum insertion_modes
 
 #define currentNode open_elements[vector_length(open_elements) - 1]
 #define currentDocumentTypeNode (currentNode->as.DocumentType)
+#define currentElementNode (currentNode->as.Element)
 #define appendChild(node, child) do { type(DOM.Node)* _ = child; vector_append(node->childNodes, &_); } while(0)
 
 #define openElementsPush(element) do { type(DOM.Node)* _ = element; vector_append(open_elements, &_); } while(0)
@@ -96,21 +99,30 @@ static adjusted_insertion_location_t appropriate_place_for_inserting_node(type(D
 {
     // https://html.spec.whatwg.org/#appropriate-place-for-inserting-a-node
 
+    // 1. If there was an override target specified, then let target be the override target.
+    //    Otherwise, let target be the current node.
     type(DOM.Node)* target = overrideTarget ?: currentNode;
 
+    // 2. Determine the adjusted insertion location using the first matching steps from the following list:
     adjusted_insertion_location_t location;
 
+    // If foster parenting is enabled and target is a table, tbody, tfoot, thead, or tr element
     if(false)
     {
         // TODO: foster parenting
     }
+    // Otherwise
     else
     {
+        // Let adjusted insertion location be inside target, after its last child (if any).
         location.parent = target;
         location.index = vector_length(target->childNodes);
     }
 
-    // TODO: template
+    // 3. If the adjusted insertion location is inside a template element, let it instead be inside the template element's template contents, after its last child (if any).
+    // TODO
+
+    // 4. Return the adjusted insertion location.
     return location;
 }
 
@@ -131,20 +143,49 @@ static type(DOM.Node)* create_element_for(token_t* token, type(DOM.Node)* intend
 {
     // https://html.spec.whatwg.org/#create-an-element-for-the-token
 
-    // TODO: fully implement this
+    // TODO 1, 2
+
+    // 3. Let document be intended parent's node document.
     type(DOM.Node)* document = intendedParent->ownerDocument;
+
+    // 4. Let local name be the tag name of the token.
     DOMString localName = token->as.tag.name;
 
-    type(DOM.Node)* result = DOM.create_element(document, localName);
+    // 5. Let is be the value of the "is" attribute in the given token, if such an attribute exists, or null otherwise.
+    // TODO
 
+    // TODO 6
+
+    // 7. If definition is non-null and the parser was not created as part of the HTML fragment parsing algorithm, then let will execute script be true. Otherwise, let it be false
+    bool will_execute_script = false; // TODO
+
+    // 8. If will execute script is true, then:
+    if(will_execute_script)
+    {
+        // TODO
+    }
+
+    // 9. Let element be the result of creating an element given document, localName, given namespace, null, and is. If will execute script is true, set the synchronous custom elements flag; otherwise, leave it unset.
+    type(DOM.Node)* element = DOM.create_element(document, localName); // TODO
+
+    // 10. Append each attribute in the given token to element.
     for(size_t i = 0; i < vector_length(token->as.tag.attributes); i++)
     {
         token_attribute_t* attribute = &token->as.tag.attributes[i];
         type(DOM.Node)* attr = DOM.Node.Attr.new(document, attribute->name, attribute->value);
-        DOM.NamedNodeMap.setNamedItem(result->as.Element.attributes, attr);
+        DOM.NamedNodeMap.setNamedItem(element->as.Element.attributes, attr);
     }
 
-    return result;
+    // 11. If will execute script is true, then:
+    if(will_execute_script)
+    {
+        // TODO
+    }
+
+    // TODO 12, 13, 14 
+
+    // 15. Return element.
+    return element;
 }
 
 static type(DOM.Node)* insert_foreign_element(token_t* token)
@@ -197,14 +238,87 @@ static void reconstruct_active_formatting_elements()
     assert(false);
 }
 
-static bool one_off(wchar_t** options)
+static bool one_off(DOMString what, wchar_t** options)
 {
     for(wchar_t** option = options; *option; option++)
-        if(wcscmp(currentTagToken.name, *option) == 0)
+        if(wcscmp(what, *option) == 0)
             return true;
     return false;
 }
-#define oneOff(...) one_off((wchar_t*[]){__VA_ARGS__, NULL})
+#define oneOff(...) one_off(currentTagToken.name, (wchar_t*[]){__VA_ARGS__, NULL})
+
+static bool open_elements_has_in_scope_specific_str(DOMString tagName, DOMString* scope)
+{
+    for(int64_t i = vector_length(open_elements); i > 0; i--)
+    {
+        type(DOM.Node)* node = open_elements[i - 1];
+        if(wcscmp(node->as.Element.localName, tagName) == 0)
+            return true;
+        DOMString* list = scope;
+        while(*list)
+        {
+            if(wcscmp(*list, node->as.Element.localName) == 0)
+                return false;
+            list++;
+        }
+    }
+}
+
+#define basicScopeList HTML.TagNames.applet, HTML.TagNames.caption, HTML.TagNames.html, HTML.TagNames.table, HTML.TagNames.td, HTML.TagNames.th, HTML.TagNames.marquee, HTML.TagNames.object, HTML.TagNames.template
+
+static bool open_elements_has_in_scope_str(DOMString tagName)
+{
+    DOMString base_list[] = { basicScopeList, NULL };
+    return open_elements_has_in_scope_specific_str(tagName, base_list);
+}
+
+static bool open_elements_has_in_button_scope_str(DOMString tagName)
+{
+    DOMString base_list[] = { HTML.TagNames.button, basicScopeList, NULL };
+    return open_elements_has_in_scope_specific_str(tagName, base_list);
+}
+
+#define OpenElementsHasInScope(element) _Generic((element), DOMString: open_elements_has_in_scope_str(element), default: false)
+#define OpenElementsHasInButtonScope(element) _Generic((element), DOMString: open_elements_has_in_button_scope_str(element), default: false)
+
+#define openElementsPopUntilInclusive(tagname) do {                 \
+while(wcscmp(currentElementNode.localName, HTML.TagNames.p) != 0)   \
+    openElementsPop();                                              \
+openElementsPop();                                                  \
+} while(0)
+
+#define openElementsPopUntilOneOffInclusive(...) do {                           \
+while(!one_off(currentElementNode.localName, (wchar_t*[]){__VA_ARGS__, NULL}))  \
+    openElementsPop();                                                          \
+openElementsPop();                                                              \
+} while(0)
+
+static void generate_implied_end_tag(DOMString exception)
+{
+    DOMString implied[] = { HTML.TagNames.dd, HTML.TagNames.dt, HTML.TagNames.li, HTML.TagNames.optgroup, HTML.TagNames.option, HTML.TagNames.p, HTML.TagNames.rb, HTML.TagNames.rp, HTML.TagNames.rt, HTML.TagNames.rtc, NULL };
+
+    while(one_off(currentElementNode.localName, implied) && (!exception || wcscmp(currentElementNode.localName, exception) != 0))
+        openElementsPop();
+}
+
+static void close_p_element()
+{
+    generate_implied_end_tag(HTML.TagNames.p);
+    
+    if(wcscmp(currentElementNode.localName, HTML.TagNames.p) != 0)
+        parser_error("generic");
+
+    while(wcscmp(currentElementNode.localName, HTML.TagNames.p) != 0)
+        openElementsPop();
+    openElementsPop();
+}
+
+// TODO: implement this
+static bool is_parsing_stopped = false;
+static void stop_parsing()
+{
+    is_parsing_stopped = true;
+}
 
 processMode(Initial);
 processMode(BeforeHTML);
@@ -213,7 +327,11 @@ processMode(InHead);
 processMode(InHeadNoscript);
 processMode(AfterHead);
 processMode(InBody);
+processMode(AfterBody);
 processMode(Text);
+processMode(InTemplate);
+processMode(InTable);
+processMode(AfterAfterBody);
 
 #define insertComment() do { insert_comment(locationDefault); return; } while(0)
 #define insertCommentAt(location) do { insert_comment(location); return; } while(0)
@@ -230,19 +348,99 @@ processMode(Initial)
     }
     on(doctype)
     {
-        // TODO: parser errors
+        if (wcscmp(currentDoctypeToken.name, L"html") != 0 || currentDoctypeToken.public_identifier != NULL || (currentDoctypeToken.system_identifier != NULL && wcscmp(currentDoctypeToken.system_identifier, L"about:legacy-compat") != 0))
+            parser_error("generic");
 
         type(DOM.Node)* doctype = DOM.Node.DocumentType.new(document, currentDoctypeToken.name, currentDoctypeToken.public_identifier, currentDoctypeToken.system_identifier);
         appendChild(document, doctype);
 
-        // TODO: lot of quirk stuffs
+        document->as.Document.mode = no_quirks;
+        if ( /* TODO not an iframe srcdoc*/ parser_cannot_change_mode == false)
+        {
+            // TODO: case insentiveness
+            if ((currentDoctypeToken.forceQuirks)
+                || (wcscmp(currentDoctypeToken.name, L"html") != 0)
+                || (currentDoctypeToken.public_identifier && wcscmp(currentDoctypeToken.public_identifier, L"-//W3O//DTD W3 HTML Strict 3.0//EN//") == 0)
+                || (currentDoctypeToken.public_identifier && wcscmp(currentDoctypeToken.public_identifier, L"-/W3C/DTD HTML 4.0 Transitional/EN") == 0)
+                || (currentDoctypeToken.public_identifier && wcscmp(currentDoctypeToken.public_identifier, L"HTML") == 0)
+                || (currentDoctypeToken.system_identifier && wcscmp(currentDoctypeToken.system_identifier, L"http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd") == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"+//Silmaril//dtd html Pro v0r11 19970101//", 42) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//AS//DTD HTML 3.0 asWedit + extensions//", 42) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//AdvaSoft Ltd//DTD HTML 3.0 asWedit + extensions//", 52) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.0 Level 1//", 31) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.0 Level 2//", 31) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.0 Strict Level 1//", 38) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.0 Strict Level 2//", 38) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.0 Strict//", 30) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.0//", 23) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 2.1E//", 24) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 3.0//", 23) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 3.2 Final//", 29) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 3.2//", 23) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML 3//", 21) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Level 0//", 27) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Level 1//", 27) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Level 2//", 27) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Level 3//", 27) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Strict Level 0//", 34) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Strict Level 1//", 34) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Strict Level 2//", 34) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Strict Level 3//", 34) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML Strict//", 26) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//IETF//DTD HTML//", 19) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Metrius//DTD Metrius Presentational//", 40) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Microsoft//DTD Internet Explorer 2.0 HTML Strict//", 53) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Microsoft//DTD Internet Explorer 2.0 HTML//", 46) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Microsoft//DTD Internet Explorer 2.0 Tables//", 48) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Microsoft//DTD Internet Explorer 3.0 HTML Strict//", 53) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Microsoft//DTD Internet Explorer 3.0 HTML//", 46) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Microsoft//DTD Internet Explorer 3.0 Tables//", 48) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Netscape Comm. Corp.//DTD HTML//", 35) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Netscape Comm. Corp.//DTD Strict HTML//", 42) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//O'Reilly and Associates//DTD HTML 2.0//", 42) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//O'Reilly and Associates//DTD HTML Extended 1.0//", 51) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//O'Reilly and Associates//DTD HTML Extended Relaxed 1.0//", 59) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//SQ//DTD HTML 2.0 HoTMetaL + extensions//", 43) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//SoftQuad Software//DTD HoTMetaL PRO 6.0::19990601::extensions to HTML 4.0//", 78) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//SoftQuad//DTD HoTMetaL PRO 4.0::19971010::extensions to HTML 4.0//", 69) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Spyglass//DTD HTML 2.0 Extended//", 36) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Sun Microsystems Corp.//DTD HotJava HTML//", 45) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//Sun Microsystems Corp.//DTD HotJava Strict HTML//", 52) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 3 1995-03-24//", 31) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 3.2 Draft//", 28) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 3.2 Final//", 28) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 3.2//", 22) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 3.2S Draft//", 29) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 4.0 Frameset//", 31) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 4.0 Transitional//", 35) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML Experimental 19960712//", 40) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML Experimental 970421//", 38) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD W3 HTML//", 21) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3O//DTD W3 HTML 3.0//", 25) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//WebTechs//DTD Mozilla HTML 2.0//", 35) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//WebTechs//DTD Mozilla HTML//" , 31) == 0)
+                || (currentDoctypeToken.system_identifier == NULL && currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 4.01 Frameset//", 32) == 0)
+                || (currentDoctypeToken.system_identifier == NULL && currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 4.01 Transitional//", 36) == 0)
+            )
+                document->as.Document.mode = quirks;
+            else if (
+                (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD XHTML 1.0 Frameset//" , 32) == 0)
+                || (currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD XHTML 1.0 Transitional//", 36) == 0)
+                || (currentDoctypeToken.system_identifier && currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 4.01 Frameset//", 32) == 0)
+                || (currentDoctypeToken.system_identifier && currentDoctypeToken.public_identifier && wcsncmp(currentDoctypeToken.public_identifier, L"-//W3C//DTD HTML 4.01 Transitional//", 36) == 0)
+            )
+                document->as.Document.mode = limited_quirks;
+            else
+                document->as.Document.mode = no_quirks;
+        }
 
         switchTo(BeforeHTML);
     }
     anythingElse()
     {
-        // TODO: some quirk stuffs
-        // TODO: parser errors
+        // TODO: not an iframe srcdoc document
+        if(parser_cannot_change_mode == false)
+            document->as.Document.mode = quirks;
 
         reprocessIn(BeforeHTML);
     }
@@ -590,9 +788,483 @@ processMode(InBody)
         useRulesOf(InHead);
         return;
     }
-    // TODO: body
-    // TODO: frameset
-    // 
+    on(start_tag && oneOff(HTML.TagNames.body))
+    {
+        parser_error("generic");
+
+       // TODO: fragment case
+
+       frameset_ok = false;
+       for (size_t i = 0; i < vector_length(currentTagToken.attributes); i++)
+           if (DOM.NamedNodeMap.getNamedItem(open_elements[0]->as.Element.attributes, currentTagToken.attributes[i].name) == NULL)
+           {
+               type(DOM.Node)* attr = DOM.Node.Attr.new(open_elements[0]->ownerDocument, currentTagToken.attributes[i].name, currentTagToken.attributes[i].value);
+               DOM.NamedNodeMap.setNamedItem(open_elements[0]->as.Element.attributes, attr);
+           }
+
+        return;
+    }
+    // TODO: frameset    
+    on(eof)
+    {
+        if(template_insertion_modes.size > 0)
+        {
+            useRulesOf(InTemplate);
+            return;
+        }
+
+        bool contains = openElementsContains(HTML.TagNames.dd) ||
+                        openElementsContains(HTML.TagNames.dt) ||
+                        openElementsContains(HTML.TagNames.li) ||
+                        openElementsContains(HTML.TagNames.optgroup) ||
+                        openElementsContains(HTML.TagNames.option) ||
+                        openElementsContains(HTML.TagNames.p) ||
+                        openElementsContains(HTML.TagNames.rb) ||
+                        openElementsContains(HTML.TagNames.rp) ||
+                        openElementsContains(HTML.TagNames.rt) ||
+                        openElementsContains(HTML.TagNames.rtc) ||
+                        openElementsContains(HTML.TagNames.tbody) ||
+                        openElementsContains(HTML.TagNames.td) ||
+                        openElementsContains(HTML.TagNames.tfoot) ||
+                        openElementsContains(HTML.TagNames.th) ||
+                        openElementsContains(HTML.TagNames.thead) ||
+                        openElementsContains(HTML.TagNames.tr) ||
+                        openElementsContains(HTML.TagNames.body) ||
+                        openElementsContains(HTML.TagNames.html);
+        if (!contains)
+        {
+            parser_error("generic");
+        }
+
+        stop_parsing();
+        return;
+    }
+    on(end_tag && oneOff(HTML.TagNames.body))
+    {
+        if(!OpenElementsHasInScope(HTML.TagNames.body))
+        {
+            parser_error("generic");
+            ignoreToken();
+        }
+
+        bool contains = openElementsContains(HTML.TagNames.dd) ||
+                        openElementsContains(HTML.TagNames.dt) ||
+                        openElementsContains(HTML.TagNames.li) ||
+                        openElementsContains(HTML.TagNames.optgroup) ||
+                        openElementsContains(HTML.TagNames.option) ||
+                        openElementsContains(HTML.TagNames.p) ||
+                        openElementsContains(HTML.TagNames.rb) ||
+                        openElementsContains(HTML.TagNames.rp) ||
+                        openElementsContains(HTML.TagNames.rt) ||
+                        openElementsContains(HTML.TagNames.rtc) ||
+                        openElementsContains(HTML.TagNames.tbody) ||
+                        openElementsContains(HTML.TagNames.td) ||
+                        openElementsContains(HTML.TagNames.tfoot) ||
+                        openElementsContains(HTML.TagNames.th) ||
+                        openElementsContains(HTML.TagNames.thead) ||
+                        openElementsContains(HTML.TagNames.tr) ||
+                        openElementsContains(HTML.TagNames.body) ||
+                        openElementsContains(HTML.TagNames.html);
+        if (!contains)
+            parser_error("generic");
+
+        switchTo(AfterBody);
+    }
+    on(end_tag && oneOff(HTML.TagNames.html))
+    {
+        if(!OpenElementsHasInScope(HTML.TagNames.body))
+        {
+            parser_error("generic");
+            ignoreToken();
+        }  
+        
+        bool contains = openElementsContains(HTML.TagNames.dd) ||
+                        openElementsContains(HTML.TagNames.dt) ||
+                        openElementsContains(HTML.TagNames.li) ||
+                        openElementsContains(HTML.TagNames.optgroup) ||
+                        openElementsContains(HTML.TagNames.option) ||
+                        openElementsContains(HTML.TagNames.p) ||
+                        openElementsContains(HTML.TagNames.rb) ||
+                        openElementsContains(HTML.TagNames.rp) ||
+                        openElementsContains(HTML.TagNames.rt) ||
+                        openElementsContains(HTML.TagNames.rtc) ||
+                        openElementsContains(HTML.TagNames.tbody) ||
+                        openElementsContains(HTML.TagNames.td) ||
+                        openElementsContains(HTML.TagNames.tfoot) ||
+                        openElementsContains(HTML.TagNames.th) ||
+                        openElementsContains(HTML.TagNames.thead) ||
+                        openElementsContains(HTML.TagNames.tr) ||
+                        openElementsContains(HTML.TagNames.body) ||
+                        openElementsContains(HTML.TagNames.html);
+        if (!contains)
+        {
+            parser_error("generic");
+        }
+
+        reprocessIn(AfterBody);
+    }
+    on(start_tag && oneOff(HTML.TagNames.address, HTML.TagNames.article, HTML.TagNames.aside, HTML.TagNames.blockquote, HTML.TagNames.center, HTML.TagNames.details, HTML.TagNames.dialog, HTML.TagNames.dir, HTML.TagNames.div, HTML.TagNames.dl, HTML.TagNames.fieldset, HTML.TagNames.figcaption, HTML.TagNames.figure, HTML.TagNames.footer, HTML.TagNames.header, HTML.TagNames.hgroup, HTML.TagNames.main, HTML.TagNames.menu, HTML.TagNames.nav, HTML.TagNames.ol, HTML.TagNames.p, HTML.TagNames.search, HTML.TagNames.section, HTML.TagNames.summary, HTML.TagNames.ul))
+    {
+        if(OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+        
+        insert_html_element(currentToken);
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.h1, HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6))
+    {
+        if(OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+
+        if(one_off(currentElementNode.localName, (wchar_t*[]){HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6}))
+        {
+            parser_error("generic");
+            openElementsPop();
+        }
+
+        insert_html_element(currentToken);
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.pre, HTML.TagNames.listing))
+    {
+        if(OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+
+        insert_html_element(currentToken);
+
+        // TODO: next token things
+
+        frameset_ok = false;
+        return;
+    }
+    // TODO: form
+    on(start_tag && oneOff(HTML.TagNames.li))
+    {
+        frameset_ok = false;
+
+        for (int64_t i = vector_length(open_elements) - 1; i >= 0; i--)
+        {
+            type(DOM.Node)* node = open_elements[i];
+
+            if(wcscmp(node->as.Element.localName, HTML.TagNames.li) == 0)
+            {
+                generate_implied_end_tag(HTML.TagNames.li);
+                if(wcscmp(currentElementNode.localName, HTML.TagNames.li) != 0)
+                    parser_error("generic");
+                openElementsPopUntilInclusive(HTML.TagNames.li);
+                break;
+            }
+            if(one_off(node->as.Element.localName, HTML.SpecialTagNames) && !one_off(node->as.Element.localName, (wchar_t*[]){HTML.TagNames.address, HTML.TagNames.div, HTML.TagNames.p}))
+                break;
+        }
+
+        if(OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+
+        insert_html_element(currentToken);
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.dd, HTML.TagNames.dt))
+    {
+        frameset_ok = false;
+    
+        for (int64_t i = vector_length(open_elements) - 1; i >= 0; i--)
+        {
+            type(DOM.Node)* node = open_elements[i];
+
+            if(wcscmp(node->as.Element.localName, HTML.TagNames.dd) == 0)
+            {
+                generate_implied_end_tag(HTML.TagNames.dd);
+                if(wcscmp(currentElementNode.localName, HTML.TagNames.dd) != 0)
+                    parser_error("generic");
+                openElementsPopUntilInclusive(HTML.TagNames.dd);
+                break;
+            }
+            if(wcscmp(node->as.Element.localName, HTML.TagNames.dt) == 0)
+            {
+                generate_implied_end_tag(HTML.TagNames.dt);
+                if(wcscmp(currentElementNode.localName, HTML.TagNames.dt) != 0)
+                    parser_error("generic");
+                openElementsPopUntilInclusive(HTML.TagNames.dt);
+                break;
+            }
+            if(one_off(node->as.Element.localName, HTML.SpecialTagNames) && !one_off(node->as.Element.localName, (wchar_t*[]){HTML.TagNames.address, HTML.TagNames.div, HTML.TagNames.p}))
+                break;
+        }
+
+        if(OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+
+        insert_html_element(currentToken);
+        return;
+    }
+    // TODO: plaintext
+    on(start_tag && oneOff(HTML.TagNames.button))
+    {
+        if(OpenElementsHasInScope(HTML.TagNames.button))
+        {
+            parser_error("generic");
+            generate_implied_end_tag(NULL);
+            openElementsPopUntilInclusive(HTML.TagNames.button);
+        }
+        reconstruct_active_formatting_elements();
+        insert_html_element(currentToken);
+        frameset_ok = false;
+        return;
+    }
+    on(end_tag && oneOff(HTML.TagNames.address, HTML.TagNames.article, HTML.TagNames.aside, HTML.TagNames.blockquote, HTML.TagNames.button, HTML.TagNames.center, HTML.TagNames.details, HTML.TagNames.dialog, HTML.TagNames.dir, HTML.TagNames.div, HTML.TagNames.dl, HTML.TagNames.fieldset, HTML.TagNames.figcaption, HTML.TagNames.figure, HTML.TagNames.footer, HTML.TagNames.header, HTML.TagNames.hgroup, HTML.TagNames.listing, HTML.TagNames.main, HTML.TagNames.menu, HTML.TagNames.nav, HTML.TagNames.ol, HTML.TagNames.pre, HTML.TagNames.search, HTML.TagNames.section, HTML.TagNames.summary, HTML.TagNames.ul))
+    {
+        if(!OpenElementsHasInScope(currentTagToken.name))
+        {
+            parser_error("generic");
+            ignoreToken();
+        }
+        else
+        {
+            generate_implied_end_tag(NULL);
+            if(wcscmp(currentElementNode.localName, currentTagToken.name) != 0)
+                parser_error("generic");
+            openElementsPopUntilInclusive(currentTagToken.name);
+        }
+        return;
+    }
+    // TODO: form
+    on(end_tag && oneOff(HTML.TagNames.p))
+    {
+        if(!OpenElementsHasInButtonScope(HTML.TagNames.p))
+        {
+            parser_error("generic");
+            token_t dummyP = { .type = token_start_tag, .as.start_tag = { .name = HTML.TagNames.p, .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)) } };
+            insert_html_element(currentToken);
+        }
+        close_p_element();
+        return;
+    }
+    on(end_tag && oneOff(HTML.TagNames.li))
+    {
+        if(!OpenElementsHasInScope(HTML.TagNames.li))
+        {
+            parser_error("generic");
+            ignoreToken();
+        }
+
+        generate_implied_end_tag(HTML.TagNames.li);
+        if(wcscmp(currentElementNode.localName, HTML.TagNames.li) != 0)
+            parser_error("generic");
+        openElementsPopUntilInclusive(HTML.TagNames.li);
+        return;
+    }
+    on(end_tag && oneOff(HTML.TagNames.dd, HTML.TagNames.dt))
+    {
+        if(!OpenElementsHasInScope(currentTagToken.name))
+        {
+            parser_error("generic");
+            ignoreToken();
+        }
+
+        generate_implied_end_tag(currentTagToken.name);
+        if(wcscmp(currentElementNode.localName, currentTagToken.name) != 0)
+            parser_error("generic");
+        openElementsPopUntilInclusive(currentTagToken.name);
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.h1, HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6))
+    {
+        if(!OpenElementsHasInScope(HTML.TagNames.h1)
+            && !OpenElementsHasInScope(HTML.TagNames.h2)
+            && !OpenElementsHasInScope(HTML.TagNames.h3)
+            && !OpenElementsHasInScope(HTML.TagNames.h4)
+            && !OpenElementsHasInScope(HTML.TagNames.h5)
+            && !OpenElementsHasInScope(HTML.TagNames.h6))
+        {
+            parser_error("generic");
+            ignoreToken();
+        }
+
+        generate_implied_end_tag(NULL);
+        if(wcscmp(currentElementNode.localName, currentTagToken.name) != 0)
+            parser_error("generic");
+        openElementsPopUntilOneOffInclusive(HTML.TagNames.h1, HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6);
+        return;
+    }
+    // TODO: "a"
+    // TODO: "b", "big", "code", "em", "font", "i", "s", "small", "strike", "strong", "tt", "u"
+    // TODO: "nobr"
+    // TODO: "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"
+    // TODO: open/close "applet", "marquee", "object"
+    on(start_tag && oneOff(HTML.TagNames.table))
+    {
+        if(document->as.Document.mode != quirks && OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+
+        insert_html_element(currentToken);
+        frameset_ok = false;
+        switchTo(InTable);
+    }
+    on(end_tag && oneOff(HTML.TagNames.br))
+    {
+        parser_error("generic");
+        // TODO: drop attributes
+        goto normalBr;
+    }
+    on(start_tag && oneOff(HTML.TagNames.area, HTML.TagNames.br, HTML.TagNames.embed, HTML.TagNames.img, HTML.TagNames.keygen, HTML.TagNames.wbr))
+    {
+        normalBr:
+        reconstruct_active_formatting_elements();
+        insert_html_element(currentToken);
+        openElementsPop();
+        currentTagToken.ackSelfClosing = true;
+        frameset_ok = false;
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.input))
+    {
+        reconstruct_active_formatting_elements();
+        insert_html_element(currentToken);
+        openElementsPop();
+        currentTagToken.ackSelfClosing = true;
+
+        size_t len = vector_length(currentTagToken.attributes);
+        for(size_t i = 0; i < len; i++)
+        {
+            token_attribute_t* attr = &currentTagToken.attributes[i];
+            if(wcscmp(attr->name, L"type") == 0)
+            {
+                if(wcscmp(attr->value, L"hidden") == 0)
+                    frameset_ok = false;
+                break;
+            }
+        }
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.param, HTML.TagNames.source, HTML.TagNames.track))
+    {
+        insert_html_element(currentToken);
+        openElementsPop();
+        currentTagToken.ackSelfClosing = true;
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.hr))
+    {
+        if(OpenElementsHasInButtonScope(HTML.TagNames.p))
+            close_p_element();
+
+        insert_html_element(currentToken);
+        openElementsPop();
+        currentTagToken.ackSelfClosing = true;
+        frameset_ok = false;
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.image))
+    {
+        parser_error("generic");
+        wstring_clear(currentTagToken.name);
+        wstring_appends(currentTagToken.name, HTML.TagNames.img);
+        reprocessIn(InBody);
+    }
+    // TODO: the rest
+    on(start_tag)
+    {
+        reconstruct_active_formatting_elements();
+        insert_html_element(currentToken);
+        return;
+    }
+    on(end_tag)
+    {  
+        size_t len = vector_length(open_elements);
+        for(int64_t i = len - 1; i >= 0; i--)
+        {
+            type(DOM.Node)* node = open_elements[i];
+            if(wcscmp(node->as.Element.localName, currentTagToken.name) == 0)
+            {
+                generate_implied_end_tag(currentTagToken.name);
+                if(wcscmp(currentElementNode.localName, currentTagToken.name) != 0)
+                    parser_error("generic");
+                openElementsPopUntilInclusive(currentTagToken.name);
+                break;
+            }
+            else if(one_off(node->as.Element.localName, HTML.SpecialTagNames))
+            {
+                parser_error("generic");
+                return;
+            }
+        }
+        return;
+    }
+}
+
+processMode(AfterBody)
+{
+    on(character && isAsciiWhitespace(currentCharacterToken.value))
+    {
+        useRulesOf(InBody);
+        return;
+    }
+    on(comment)
+    {
+        insert_comment(locationLastChild(open_elements[0]));
+        return;
+    }
+    on(doctype)
+    {
+        parser_error("generic");
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.html))
+    {
+        useRulesOf(InBody);
+        return;
+    }
+    on(end_tag && oneOff(HTML.TagNames.html))
+    {
+        // TODO fragment case
+
+        switchTo(AfterAfterBody);
+    }
+    on(eof)
+    {
+        stop_parsing();
+        return;
+    }
+    anythingElse()
+    {
+        parser_error("generic");
+        reprocessIn(InBody);
+    }
+}
+
+processMode(AfterAfterBody)
+{
+    on(comment)
+    {
+        insert_comment(locationLastChild(document));
+        return;
+    }
+    on(doctype)
+    {
+        useRulesOf(InBody);
+        return;
+    }
+    on(character && isAsciiWhitespace(currentCharacterToken.value))
+    {
+        useRulesOf(InBody);
+        return;
+    }
+    on(start_tag && oneOff(HTML.TagNames.html))
+    {
+        useRulesOf(InBody);
+        return;
+    }
+    on(eof)
+    {
+        stop_parsing();
+        return;
+    }
+    anythingElse()
+    {
+        parser_error("generic");
+        reprocessIn(InBody);
+    }
 }
 
 processMode(Text)
@@ -602,12 +1274,36 @@ processMode(Text)
         insert_character(NULL);
         return;
     }
-    // TODO: rest of the shit
+    on(eof)
+    {
+        parser_error("generic");
+        if(wcscmp(currentElementNode.localName, HTML.TagNames.script) == 0)
+        {
+            // TODO: set its already started flag to true
+        }
+        openElementsPop();
+        switchToOriginalInsertionMode();
+    }
+    on(end_tag && oneOff(HTML.TagNames.script))
+    {
+        // TODO implement this
+        assert(false);
+    }
     anythingElse()
     {
         openElementsPop();
         switchToOriginalInsertionMode();
     }
+}
+
+processMode(InTemplate)
+{
+    assert(false);
+}
+
+processMode(InTable)
+{
+    assert(false);
 }
 
 void parser_init()
@@ -627,26 +1323,26 @@ void parser_init()
 
 type(DOM.Node)* parser_parse()
 {
-    bool isEOF = false;
     do
     {
         currentToken = tokenizer_emit_token();
-        isEOF = currentToken->type == token_eof;
 
-        if(!isEOF)
-            switch (insertion_mode)
-            {
-                matchMode(Initial);
-                matchMode(BeforeHTML);
-                matchMode(BeforeHead);
-                matchMode(InHead);
-                matchMode(Text);
-                matchMode(AfterHead);
-                matchMode(InBody);
-            }
+        switch (insertion_mode)
+        {
+            matchMode(Initial);
+            matchMode(BeforeHTML);
+            matchMode(BeforeHead);
+            matchMode(InHead);
+            matchMode(Text);
+            matchMode(AfterHead);
+            matchMode(InBody);
+        }
         
+        if(currentToken->type == token_eof)
+            is_parsing_stopped = true;
         tokenizer_dispose_token(currentToken);
-    } while (!isEOF);
+
+    } while (!is_parsing_stopped);
 
     return document;
 }

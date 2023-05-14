@@ -76,7 +76,9 @@ L"<!--anothercomment-->"
 L"<html lang=eng>"
 L"<!--comment-->"
 L"<head> <title>titlest</title></head>"
-L"bodycontent text"
+L"<body>"
+L"<p>inp</p>afp"
+L"</body>"
 L"</html>"
     ));
     tokenizer_init(&input_stream);

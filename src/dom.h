@@ -43,6 +43,7 @@ struct __namespace_DOM
         {
             struct
             {
+                enum { no_quirks, quirks, limited_quirks } mode;
             } Document;
             struct
             {
