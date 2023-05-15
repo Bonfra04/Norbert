@@ -1,22 +1,26 @@
 #pragma once
 
-#include "consumable.h"
+#include <oop/object.h>
+
+#include <stream/consumable.h>
 
 #include <stdbool.h>
 
-typedef struct stream
+typedef struct StreamRec
 {
+    Object object;
+
+    wchar_t (*consume)();
+    wchar_t (*current)();
+    void (*reconsume)();
+    size_t (*consume_n)(size_t n, wchar_t* out);
+    size_t (*reconsume_n)(size_t n);
+    bool (*match)(wchar_t* str, bool consume, bool case_sensitive);
+
     consumable_t source;
     wchar_t* data;
     size_t pos;
-} stream_t;
+} Stream;
 
-stream_t stream_new(consumable_t source);
-void stream_free(stream_t* stream);
-
-wchar_t stream_consume(stream_t* stream);
-wchar_t stream_current(stream_t* stream);
-void stream_reconsume(stream_t* stream);
-size_t stream_consume_n(stream_t* stream, size_t n, wchar_t* out);
-size_t stream_reconsume_n(stream_t* stream, size_t n);
-bool stream_match(stream_t* stream, wchar_t* str, bool consume, bool case_sensitive); 
+Stream* Stream_new(consumable_t source);
+void Stream_delete(Stream* self);

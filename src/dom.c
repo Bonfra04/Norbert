@@ -13,7 +13,7 @@ static type(DOM.Node)* __DOM_Node_Comment_new(type(DOM.Node)* document, DOMStrin
 static type(DOM.Node)* __DOM_Node_Text_new(type(DOM.Node)* document, DOMString wholeText);
 static type(DOM.Node)* __DOM_Node_Attr_new(type(DOM.Node)* document, DOMString name, DOMString value);
 
-static type(DOM.Node)* __DOM_create_element(type(DOM.Node)* document, wchar_t* localName);
+static type(DOM.Node)* __DOM_create_element(type(DOM.Node)* document, DOMString localName);
 
 static type(DOM.NamedNodeMap)* __DOM_NamedNodeMap_new();
 static type(DOM.Node)* __DOM_NamedNodeMap_item(type(DOM.NamedNodeMap)* self, unsigned long index);
@@ -83,7 +83,7 @@ static type(DOM.Node)* __DOM_Node_new(unsigned short nodeType, type(DOM.Node)* d
     type(DOM.Node)* self = calloc(sizeof(type(DOM.Node)), 1);
     
     self->nodeType = nodeType;
-    self->childNodes = vector_new(sizeof(type(DOM.Node)*));
+    self->childNodes = Vector_new();
     self->ownerDocument = document;
 
     return self;
@@ -91,11 +91,11 @@ static type(DOM.Node)* __DOM_Node_new(unsigned short nodeType, type(DOM.Node)* d
 
 static void __DOM_Node_delete(type(DOM.Node)* self)
 {
-    size_t num_childs = vector_length(self->childNodes);
+    size_t num_childs = self->childNodes->length();
     for (size_t i = 0; i < num_childs; i++)
-        self->childNodes[i]->delete(self->childNodes[i]);
+        ((type(DOM.Node)*)self->childNodes->at(i))->delete(self->childNodes->at(i));
 
-    vector_free(self->childNodes);
+    Vector_delete(self->childNodes);
     free(self);
 }
 
@@ -111,9 +111,17 @@ static type(DOM.Node)* __DOM_Node_DocumentType_new(type(DOM.Node)* document, DOM
 {
     type(DOM.Node)* self = DOM.Node.new(DOM.Node.DOCUMENT_TYPE_NODE, document);
 
-    self->as.DocumentType.name = wstring_copy(name) ?: wstring_new();
-    self->as.DocumentType.publicId = wstring_copy(publicId) ?: wstring_new();
-    self->as.DocumentType.systemId = wstring_copy(systemId) ?: wstring_new();
+    self->as.DocumentType.name = WString_new();
+    if(name)
+        self->as.DocumentType.name->append(name);
+
+    self->as.DocumentType.publicId = WString_new();
+    if(publicId)
+        self->as.DocumentType.publicId->append(publicId);
+    
+    self->as.DocumentType.systemId = WString_new();
+    if(systemId)
+        self->as.DocumentType.systemId->append(systemId);
 
     return self;
 }
@@ -122,7 +130,7 @@ static type(DOM.Node)* __DOM_Node_Element_new(type(DOM.Node)* document)
 {
     type(DOM.Node)* self = DOM.Node.new(DOM.Node.ELEMENT_NODE, document);
 
-    self->as.Element.attributes = vector_new(sizeof(type(DOM.NamedNodeMap)*));
+    self->as.Element.attributes = DOM.NamedNodeMap.new();
 
     return self;
 }
@@ -131,7 +139,8 @@ static type(DOM.Node)* __DOM_Node_Comment_new(type(DOM.Node)* document, DOMStrin
 {
     type(DOM.Node)* self = DOM.Node.new(DOM.Node.COMMENT_NODE, document);
 
-    self->as.Comment.data = wstring_copy(data);
+    self->as.Comment.data = WString_new();
+    self->as.Comment.data->append(data);
 
     return self;
 }
@@ -140,8 +149,8 @@ static type(DOM.Node)* __DOM_create_element(type(DOM.Node)* document, DOMString 
 {
     type(DOM.Node)* result = DOM.Node.Element.new(document);
 
-    result->as.Element.localName = wstring_copy(localName);
-    result->as.Element.attributes = DOM.NamedNodeMap.new();
+    result->as.Element.localName = WString_new();
+    result->as.Element.localName->append(localName);
 
     return result;
 }
@@ -150,7 +159,8 @@ static type(DOM.Node)* __DOM_Node_Text_new(type(DOM.Node)* document, DOMString w
 {
     type(DOM.Node)* self = DOM.Node.new(DOM.Node.TEXT_NODE, document);
 
-    self->as.Text.wholeText = wstring_copy(wholeText);
+    self->as.Text.wholeText = WString_new();
+    self->as.Text.wholeText->append(wholeText);
 
     return self;
 }
@@ -159,8 +169,10 @@ static type(DOM.Node)* __DOM_Node_Attr_new(type(DOM.Node)* document, DOMString n
 {
     type(DOM.Node)* self = DOM.Node.new(DOM.Node.ATTRIBUTE_NODE, document);
 
-    self->as.Attr.name = wstring_copy(name);
-    self->as.Attr.value = wstring_copy(value);
+    self->as.Attr.name = WString_new();
+    self->as.Attr.name->append(name);
+    self->as.Attr.value = WString_new();
+    self->as.Attr.value->append(value);
 
     self->delete = __DOM_Node_Attr_delete;
 
@@ -169,8 +181,7 @@ static type(DOM.Node)* __DOM_Node_Attr_new(type(DOM.Node)* document, DOMString n
 
 static void __DOM_Node_Attr_delete(type(DOM.Node)* self)
 {
-    wstring_free(self->as.Attr.name);
-    wstring_free(self->as.Attr.value);
+    // TODO: free strings
     __DOM_Node_delete(self);
 }
 
@@ -178,7 +189,7 @@ static type(DOM.NamedNodeMap)* __DOM_NamedNodeMap_new()
 {
     type(DOM.NamedNodeMap)* self = calloc(sizeof(type(DOM.NamedNodeMap)), 1);
 
-    self->attributes = vector_new(sizeof(type(DOM.Node)*));
+    self->attributes = Vector_new();
 
     return self;
 }
@@ -187,15 +198,15 @@ static type(DOM.Node)* __DOM_NamedNodeMap_item(type(DOM.NamedNodeMap)* self, uns
 {
     if(index >= self->length)
         return NULL;
-    return self->attributes[index];
+    return self->attributes->at(index);
 }
 
 static type(DOM.Node)* __DOM_NamedNodeMap_getNamedItem(type(DOM.NamedNodeMap)* self, DOMString name)
 {
     for(unsigned long i = 0; i < self->length; i++)
     {
-        type(DOM.Node)* node = self->attributes[i];
-        if(wcscmp(node->as.Attr.name, name) == 0)
+        type(DOM.Node)* node = self->attributes->at(i);
+        if(node->as.Attr.name->equals(name))
             return node;
     }
     return NULL;
@@ -205,14 +216,14 @@ static type(DOM.Node)* __DOM_NamedNodeMap_setNamedItem(type(DOM.NamedNodeMap)* s
 {
     for(unsigned long i = 0; i < self->length; i++)
     {
-        type(DOM.Node)* existing = self->attributes[i];
-        if(wcscmp(existing->as.Attr.name, node->as.Attr.name) == 0)
+        type(DOM.Node)* existing = self->attributes->at(i);
+        if(existing->as.Attr.name->equals(node->as.Attr.name))
         {
-            self->attributes[i] = node;
+            self->attributes->set(i, node);
             return existing;
         }
     }
-    vector_append(self->attributes, &node);
+    self->attributes->append(node);
     self->length++;
     return NULL;
 }
@@ -221,10 +232,10 @@ static type(DOM.Node)* __DOM_NamedNodeMap_removeNamedItem(type(DOM.NamedNodeMap)
 {
     for(unsigned long i = 0; i < self->length; i++)
     {
-        type(DOM.Node)* node = self->attributes[i];
-        if(wcscmp(node->as.Attr.name, name) == 0)
+        type(DOM.Node)* node = self->attributes->at(i);
+        if(node->as.Attr.name->equals(name))
         {
-            vector_remove(self->attributes, i);
+            self->attributes->remove(i);
             self->length--;
             return node;
         }

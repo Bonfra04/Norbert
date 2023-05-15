@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dom.h"
+#include <dom.h>
 
 struct __namespace_HTML
 {

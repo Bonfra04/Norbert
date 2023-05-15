@@ -1,14 +1,32 @@
 #pragma once
 
+#include "oop/object.h"
+
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
-void* vector_new(size_t stride);
-size_t vector_length(const void* vector);
-void vector_append(void* vector, void* value);
-void* vector_pop(void* vector);
-void vector_free(void* vector);
-void vector_insert(void* vector, size_t index, void* value);
-void vector_remove(void* vector, size_t index);
-void vector_remove_first(void* vector, void* value);
-void* vector_find_first(void* vector, bool (*matcher)(void* value));
+typedef struct VectorRec
+{
+    Object object;
+
+    size_t (*length)();
+    void* (*at)(size_t index);
+    void* (*set)(int64_t index, void* value);
+
+    void (*append)(void* value);
+    void* (*pop)();
+    void (*insert)(size_t index, void* value);
+    void (*remove)(size_t index);
+    void (*remove_first)(void* value);
+
+    void* (*find_first)(bool (*matcher)(void* value));
+
+    void** data;
+    size_t capacity;
+    size_t len;
+    size_t stride;
+} Vector;
+
+Vector* Vector_new();
+void Vector_delete(Vector* self);

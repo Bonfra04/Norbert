@@ -1,10 +1,12 @@
 #pragma once
 
 #include "utils/wstring.h"
+#include "utils/vector.h"
 
 #define type(t) typeof(t)
 
-typedef wstring_t DOMString;
+typedef WString* DOMString;
+
 struct __namespace_DOM
 {
     struct __namespace_DOM_NamedNodeMap
@@ -16,7 +18,7 @@ struct __namespace_DOM
         struct __namespace_DOM_Node* (*getNamedItem)(struct __namespace_DOM_NamedNodeMap* self, DOMString qualifiedName);
         struct __namespace_DOM_Node* (*setNamedItem)(struct __namespace_DOM_NamedNodeMap* self, struct __namespace_DOM_Node* attr);
         struct __namespace_DOM_Node* (*removeNamedItem)(struct __namespace_DOM_NamedNodeMap* self, DOMString qualifiedName);
-        struct __namespace_DOM_Node** attributes;
+        Vector* attributes;
     } NamedNodeMap;
 
     struct __namespace_DOM_Node
@@ -37,7 +39,7 @@ struct __namespace_DOM
         unsigned short nodeType;
         struct __namespace_DOM_Node* ownerDocument;
         struct __namespace_DOM_Node* parentNode;
-        struct __namespace_DOM_Node** childNodes;
+        Vector* childNodes;
 
         union
         {

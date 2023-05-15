@@ -1,95 +1,679 @@
 #include "wstring.h"
 
-#include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
+#include <wctype.h>
+#include <ctype.h>
+#include <assert.h>
 
 #define WSTRING_CAPACITY 16
 
-typedef struct wsdata
+static size_t WString_length(WString* self)
 {
-    size_t length;
-    size_t capacity;
-    wchar_t data[];
-} wsdata_t;
-
-wstring_t wstring_new()
-{
-    wsdata_t* data = (wsdata_t*)malloc(sizeof(wsdata_t) + sizeof(wchar_t) * WSTRING_CAPACITY);
-    data->capacity = WSTRING_CAPACITY;
-    data->length = 0;
-    data->data[0] = L'\x0000';
-    return data->data;
+    return self->len;
 }
 
-wstring_t wstring_copy(const wstring_t str)
+static bool WString_empty(WString* self)
 {
-    if(!str)
-        return NULL;
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    wsdata_t* copy = (wsdata_t*)malloc(sizeof(wsdata_t) + sizeof(wchar_t) * data->capacity);
-    copy->capacity = data->capacity;
-    copy->length = data->length;
-    for (size_t i = 0; i < data->length; i++)
-        copy->data[i] = data->data[i];
-    copy->data[data->length] = L'\x0000';
-    return copy->data;
+    return self->len == 0;
 }
 
-size_t wstring_length(const wstring_t str)
+static void WString_clear(WString* self)
 {
-    if(!str)
-        return 0;
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    return data->length;
+    self->len = 0;
+    self->data[0] = L'\0';
 }
 
-void wstring_free(wstring_t str)
+static wchar_t WString_at(size_t index, WString* self)
 {
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    free(data);
+    assert(index < self->len);
+    return self->data[index];
 }
 
-void wstring_append(wstring_t str, wchar_t append)
+static void WString_appendwc(wchar_t c, WString* self)
 {
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    if (data->length + 1 >= data->capacity)
+    if(self->len + 1 >= self->capacity)
     {
-        data = (wsdata_t*)realloc(data, sizeof(wsdata_t) + sizeof(wchar_t) * data->capacity * 2);
-        data->capacity *= 2;
+        self->capacity *= 2;
+        self->data = realloc(self->data, sizeof(wchar_t) * self->capacity);
     }
-    data->data[data->length] = append;
-    data->data[data->length + 1] = L'\x0000';
-    data->length++;
+
+    self->data[self->len++] = c;
+    self->data[self->len] = L'\0';
 }
 
-void wstring_appends(wstring_t str, wchar_t* append)
+static void WString_appendc(char c, WString* self)
 {
-    if(append)
-        while(*append)
+    WString_appendwc((wchar_t)c, self);
+}
+
+static void WString_appendws(wchar_t* ws, WString* self)
+{
+    for(size_t i = 0; ws[i] != L'\0'; i++)
+    {
+        WString_appendwc(ws[i], self);
+    }
+}
+
+static void WString_appends(char* s, WString* self)
+{
+    for(size_t i = 0; s[i] != '\0'; i++)
+    {
+        WString_appendc(s[i], self);
+    }
+}
+
+static void WString_append(WString* other, WString* self)
+{
+    for(size_t i = 0; i < other->len; i++)
+    {
+        WString_appendwc(other->data[i], self);
+    }
+}
+
+static wchar_t WString_popback(WString* self)
+{
+    if(self->len == 0)
+    {
+        return L'\0';
+    }
+
+    wchar_t c = self->data[--self->len];
+    self->data[self->len] = L'\0';
+    return c;
+}
+
+static wchar_t WString_popfront(WString* self)
+{
+    if(self->len == 0)
+    {
+        return L'\0';
+    }
+
+    wchar_t c = self->data[0];
+    memmove(self->data, self->data + 1, sizeof(wchar_t) * self->len);
+    self->data[--self->len] = L'\0';
+    return c;
+}
+
+static WString* WString_substr(size_t start, size_t length, WString* self)
+{
+    WString* substr = WString_new();
+    for(size_t i = start; i < start + length; i++)
+    {
+        WString_appendwc(self->data[i], substr);
+    }
+
+    return substr;
+}
+
+static bool WString_equals(WString* other, WString* self)
+{
+    if(other->len != self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(other->data[i] != self->data[i])
         {
-            wstring_append(str, *append);
-            append++;
+            return false;
         }
+    }
+
+    return true;
 }
 
-void wstring_clear(wstring_t str)
+static bool WString_equalss(char* other, WString* self)
 {
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    data->length = 0;
-    data->data[0] = L'\x0000';
+    size_t other_len = strlen(other);
+    if(other_len != self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(other[i] != self->data[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
-void wstring_popback(wstring_t str)
+static bool WString_equalsws(wchar_t* other, WString* self)
 {
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    data->length--;
-    data->data[data->length] = L'\x0000';
+    size_t other_len = wcslen(other);
+    if(other_len != self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(other[i] != self->data[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
-void wstring_popfront(wstring_t str)
+static bool WString_equalsi(WString* other, WString* self)
 {
-    wsdata_t* data = (wsdata_t*)((char*)str - offsetof(wsdata_t, data));
-    for (size_t i = 0; i < data->length; i++)
-        data->data[i] = data->data[i + 1];
-    data->length--;
+    if(other->len != self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(towlower(other->data[i]) != towlower(self->data[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_equalssi(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len != self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(tolower(other[i]) != towlower(self->data[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_equalswsi(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len != self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(towlower(other[i]) != towlower(self->data[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_equalsOneOff(WString* others[], WString* self)
+{
+    for(WString** other = others; *other; other++)
+    {
+        if(self->equals(*other))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool WString_startswith(WString* other, WString* self)
+{
+    if(other->len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other->len; i++)
+    {
+        if(other->data[i] != self->data[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_startswiths(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(other[i] != self->data[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_startswithws(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(other[i] != self->data[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_startswithi(WString* other, WString* self)
+{
+    if(other->len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other->len; i++)
+    {
+        if(towlower(other->data[i]) != towlower(self->data[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_startswithsi(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(tolower(other[i]) != towlower(self->data[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_startswithwsi(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(towlower(other[i]) != towlower(self->data[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_endswith(WString* other, WString* self)
+{
+    if(other->len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other->len; i++)
+    {
+        if(other->data[other->len - i - 1] != self->data[self->len - i - 1])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_endswiths(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(other[other_len - i - 1] != self->data[self->len - i - 1])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_endswithws(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(other[other_len - i - 1] != self->data[self->len - i - 1])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_endswithi(WString* other, WString* self)
+{
+    if(other->len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other->len; i++)
+    {
+        if(towlower(other->data[other->len - i - 1]) != towlower(self->data[self->len - i - 1]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_endswithsi(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(tolower(other[other_len - i - 1]) != towlower(self->data[self->len - i - 1]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_endswithwsi(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < other_len; i++)
+    {
+        if(towlower(other[other_len - i - 1]) != towlower(self->data[self->len - i - 1]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool WString_contains(WString* other, WString* self)
+{
+    if(other->len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len - other->len + 1; i++)
+    {
+        for(size_t j = 0; j < other->len; j++)
+        {
+            if(other->data[j] != self->data[i + j])
+            {
+                break;
+            }
+
+            if(j == other->len - 1)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool WString_containss(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len - other_len + 1; i++)
+    {
+        for(size_t j = 0; j < other_len; j++)
+        {
+            if(other[j] != self->data[i + j])
+            {
+                break;
+            }
+
+            if(j == other_len - 1)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool WString_containsws(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len - other_len + 1; i++)
+    {
+        for(size_t j = 0; j < other_len; j++)
+        {
+            if(other[j] != self->data[i + j])
+            {
+                break;
+            }
+
+            if(j == other_len - 1)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool WString_containsi(WString* other, WString* self)
+{
+    if(other->len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len - other->len + 1; i++)
+    {
+        for(size_t j = 0; j < other->len; j++)
+        {
+            if(towlower(other->data[j]) != towlower(self->data[i + j]))
+            {
+                break;
+            }
+
+            if(j == other->len - 1)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool WString_containssi(char* other, WString* self)
+{
+    size_t other_len = strlen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len - other_len + 1; i++)
+    {
+        for(size_t j = 0; j < other_len; j++)
+        {
+            if(tolower(other[j]) != towlower(self->data[i + j]))
+            {
+                break;
+            }
+
+            if(j == other_len - 1)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool WString_containswsi(wchar_t* other, WString* self)
+{
+    size_t other_len = wcslen(other);
+    if(other_len > self->len)
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < self->len - other_len + 1; i++)
+    {
+        for(size_t j = 0; j < other_len; j++)
+        {
+            if(towlower(other[j]) != towlower(self->data[i + j]))
+            {
+                break;
+            }
+
+            if(j == other_len - 1)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+WString* WString_new()
+{
+    WString* self = Object_create(sizeof(WString), 37);
+    self->data = malloc(sizeof(wchar_t) * WSTRING_CAPACITY);
+    self->capacity = WSTRING_CAPACITY;
+    self->len = 0;
+    self->data[0] = L'\0';
+
+    ObjectFunction(WString, length, 0);
+    ObjectFunction(WString, empty, 0);
+    ObjectFunction(WString, clear, 0);
+    ObjectFunction(WString, at, 1);
+    ObjectFunction(WString, substr, 2);
+
+    ObjectFunction(WString, appendwc, 1);
+    ObjectFunction(WString, appendc, 1);
+    ObjectFunction(WString, appendws, 1);
+    ObjectFunction(WString, appends, 1);
+    ObjectFunction(WString, append, 1);
+    ObjectFunction(WString, popback, 0);
+    ObjectFunction(WString, popfront, 0);
+
+    ObjectFunction(WString, equals, 1);
+    ObjectFunction(WString, equalss, 1);
+    ObjectFunction(WString, equalsws, 1);
+    ObjectFunction(WString, equalsi, 1);
+    ObjectFunction(WString, equalssi, 1);
+    ObjectFunction(WString, equalswsi, 1);
+
+    ObjectFunction(WString, equalsOneOff, 1);
+
+    ObjectFunction(WString, startswith, 1);
+    ObjectFunction(WString, startswiths, 1);
+    ObjectFunction(WString, startswithws, 1);
+    ObjectFunction(WString, startswithi, 1);
+    ObjectFunction(WString, startswithsi, 1);
+    ObjectFunction(WString, startswithwsi, 1);
+
+    ObjectFunction(WString, endswith, 1);
+    ObjectFunction(WString, endswiths, 1);
+    ObjectFunction(WString, endswithws, 1);
+    ObjectFunction(WString, endswithi, 1);
+    ObjectFunction(WString, endswithsi, 1);
+    ObjectFunction(WString, endswithwsi, 1);
+
+    ObjectFunction(WString, contains, 1);
+    ObjectFunction(WString, containss, 1);
+    ObjectFunction(WString, containsws, 1);
+    ObjectFunction(WString, containsi, 1);
+    ObjectFunction(WString, containssi, 1);
+    ObjectFunction(WString, containswsi, 1);
+
+    Object_prepare(&self->object);
+    return self;
+}
+
+void WString_delete(WString* self)
+{
+    free(self->data);
+    self->object.destroy();
 }

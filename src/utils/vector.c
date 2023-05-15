@@ -7,95 +7,123 @@
 
 #define VECTOR_CAPACITY 16
 
-typedef struct vector_data
+static size_t Vector_length(Vector* self)
 {
-    size_t length;
-    size_t capacity;
-    size_t strie;
-} vector_data_t;
-
-void* vector_new(size_t stride)
-{
-    vector_data_t* vector = malloc(sizeof(vector_data_t) + sizeof(stride) * VECTOR_CAPACITY);
-    vector->length = 0;
-    vector->capacity = VECTOR_CAPACITY;
-    vector->strie = stride;
-    return (uint8_t*)vector + sizeof(vector_data_t);
+    return self->len;
 }
 
-size_t vector_length(const void *vector)
+static void* Vector_at(int64_t index, Vector* self)
 {
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    return data->length;
-}
-
-void vector_append(void* vector, void* value)
-{
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    if (data->length + 1 >= data->capacity)
+    if(index < 0)
     {
-        data = (vector_data_t*)realloc(data, sizeof(vector_data_t) + sizeof(data->strie) * data->capacity * 2);
-        data->capacity *= 2;
+        index = self->len + index;
     }
-    memcpy((uint8_t*)vector + data->length * data->strie, value, data->strie);
-    data->length++;
+    
+    assert(index < self->len);
+    return self->data[index];
 }
 
-void* vector_pop(void* vector)
+static void* Vector_set(size_t index, void* value, Vector* self)
 {
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    assert(data->length > 0);
-    data->length--;
-    return (uint8_t*)vector + data->length * data->strie;
+    assert(index < self->len);
+    self->data[index] = value;
+    return value;
 }
 
-void vector_free(void* vector)
+static void Vector_append(void* value, Vector* self)
 {
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    free(data);
-}
-
-void vector_insert(void* vector, size_t index, void* value)
-{
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    assert(index <= data->length);
-    if (data->length + 1 >= data->capacity)
+    if (self->len + 1 >= self->capacity)
     {
-        data = (vector_data_t*)realloc(data, sizeof(vector_data_t) + sizeof(data->strie) * data->capacity * 2);
-        data->capacity *= 2;
+        self->capacity *= 2;
+        self->data = (void**)realloc(self->data, sizeof(void*) * self->capacity);
     }
-    memmove((uint8_t*)vector + (index + 1) * data->strie, (uint8_t*)vector + index * data->strie, (data->length - index) * data->strie);
-    memcpy((uint8_t*)vector + index * data->strie, value, data->strie);
-    data->length++;
+
+    self->data[self->len++] = value;
 }
 
-void vector_remove(void* vector, size_t index)
+static void* Vector_pop(Vector* vector)
 {
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    assert(index < data->length);
-    memmove((uint8_t*)vector + index * data->strie, (uint8_t*)vector + (index + 1) * data->strie, (data->length - index - 1) * data->strie);
-    data->length--;
-}
-
-void vector_remove_first(void* vector, void* value)
-{
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    for (size_t i = 0; i < data->length; i++)
+    if(vector->len == 0)
     {
-        if (memcmp((uint8_t*)vector + i * data->strie, value, data->strie) == 0)
+        return NULL;
+    }
+
+    return vector->data[--vector->len];
+}
+
+static void Vector_insert(size_t index, void* value, Vector* self)
+{
+    assert(index <= self->len);
+
+    if (self->len + 1 >= self->capacity)
+    {
+        self->capacity *= 2;
+        self->data = (void**)realloc(self->data, sizeof(void*) * self->capacity);
+    }
+
+    memmove((char*)self->data + index + 1, (char*)self->data + index, (self->len - index) * sizeof(void*));
+    self->data[index] = value;
+    self->len++;
+}
+
+static void Vector_remove(size_t index, Vector* self)
+{
+    assert(index < self->len);
+
+    memmove((char*)self->data + index, (char*)self->data + index + 1, (self->len - index - 1) * sizeof(void*));
+    self->len--;
+}
+
+static void Vector_remove_first(void* value, Vector* self)
+{
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(self->data[i] == value)
         {
-            memmove((uint8_t*)vector + i * data->strie, (uint8_t*)vector + (i + 1) * data->strie, (data->length - i - 1) * data->strie);
-            data->length--;
+            memmove((char*)self->data + i, (char*)self->data + i + 1, (self->len - i - 1) * sizeof(void*));
+            self->len--;
             return;
         }
     }
 }
 
-void* vector_find_first(void *vector, bool (*matcher)(void* value))
+static void* Vector_find_first(bool (*matcher)(void* value), Vector* self)
 {
-    vector_data_t* data = (vector_data_t*)((uint8_t*)vector - sizeof(vector_data_t));
-    for (size_t i = 0; i < data->length; i++)
-        if (matcher((uint8_t*)vector + i * data->strie))
-            return (uint8_t*)vector + i * data->strie;
+    for(size_t i = 0; i < self->len; i++)
+    {
+        if(matcher(self->data[i]))
+        {
+            return self->data[i];
+        }
+    }
     return NULL;
+}
+
+Vector* Vector_new()
+{
+    Vector* self = Object_create(sizeof(Vector), 9);
+    self->data = malloc(sizeof(void*) * VECTOR_CAPACITY);
+    self->capacity = VECTOR_CAPACITY;
+    self->len = 0;
+
+    ObjectFunction(Vector, length, 0);
+    ObjectFunction(Vector, at, 1);
+    ObjectFunction(Vector, set, 2);
+
+    ObjectFunction(Vector, append, 1);
+    ObjectFunction(Vector, pop, 0);
+    ObjectFunction(Vector, insert, 2);
+    ObjectFunction(Vector, remove, 1);
+    ObjectFunction(Vector, remove_first, 1);
+
+    ObjectFunction(Vector, find_first, 1);
+
+    Object_prepare(&self->object);
+    return self;
+}
+
+void Vector_delete(Vector* self)
+{
+    free(self->data);
+    self->object.destroy();
 }

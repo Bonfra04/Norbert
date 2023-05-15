@@ -1,129 +1,104 @@
-#include "tokenizer.h"
+#include <html/tokenizer.h>
 
-#include "codepoint.h"
-#include "named_entities.h"
+#include <codepoint.h>
+#include <html/named_entities.h>
 
 #include "errors.h"
-#include "utils/wstring.h"
-#include "utils/vector.h"
-#include "utils/queue.h"
 
 #include <stdlib.h>
 #include <wctype.h>
+#include <stdint.h>
 
-static stream_t* stream;
-static states_t state;
-static states_t returnState;
-static wstring_t temporaryBuffer;
-static wchar_t characterReferenceCode;
-static queue_t tokens_queue;
-static token_t* currentToken;
-static wstring_t lastStartTagName;
+#define matchState(state) case HTMLTokenizer_state_##state:
 
-void tokenizer_init(stream_t* _stream)
-{
-    stream = _stream;
-    state = state_Data;
-    returnState = state_NONE;
-    temporaryBuffer = wstring_new();
-    characterReferenceCode = L'\x0000';
-    tokens_queue = queue_create();
-    currentToken = NULL;
-    lastStartTagName = wstring_new();
-}
-
-#define matchState(state) case state_##state:
-
-#define on_wchar(condition) (stream_current(stream) == (wchar_t)(uint64_t)(condition))
-#define on_function(condition) (((bool(*)(wchar_t))(condition))(stream_current(stream)))
-#define on_wstring(condition) (stream_match(stream, (wchar_t*)condition, true, false))
-#define checker(condition) _Generic((condition), wchar_t: on_wchar(condition), wchar_t*: on_wstring(condition), default: on_function(condition))
+#define on_wchar(condition) (self->stream->current() == (wchar_t)(uint64_t)(condition))
+#define on_function(condition) (((bool(*)(wchar_t))(condition))(self->stream->current()))
+#define on_wstring(condition) (self->stream->match((wchar_t*)condition, true, false))
+#define checker(condition) (_Generic((condition), wchar_t: on_wchar(condition), wchar_t*: on_wstring(condition), default: on_function(condition)))
 #define on(condition) if(checker(condition))
-#define anythingElse()
+#define anythingElse() if(1)
 
-#define switchTo(target) do { state = state_##target; goto emit_token; } while(0)
-#define switchToReturnState() do { state = returnState; goto emit_token; } while(0)
-#define reconsumeIn(target) do { stream_reconsume(stream); switchTo(target); } while(0)
-#define reconsumeInReturnState() do { stream_reconsume(stream); state = returnState; goto emit_token; } while(0)
-#define redo() goto emit_token
+#define next() goto emit_token
+#define switchTo(target) do { self->state = HTMLTokenizer_state_##target; next(); } while(0)
+#define switchToReturnState() do { self->state = self->returnState; next(); } while(0)
+#define reconsumeIn(target) do { self->stream->reconsume(); switchTo(target); } while(0)
+#define reconsumeInReturnState() do { self->stream->reconsume(); self->state = self->returnState; next(); } while(0)
 
-#define consumeInputCharacter() stream_consume(stream)
-#define currentInputCharacter stream_current(stream)
+#define consumeInputCharacter() (self->stream->consume())
+#define currentInputCharacter (self->stream->current())
 
-#define temporaryBufferClear() wstring_clear(temporaryBuffer)
-#define temporaryBufferAppend(c) wstring_append(temporaryBuffer, c)
+#define temporaryBufferClear() (self->temporaryBuffer->clear())
+#define temporaryBufferAppend(c) (self->temporaryBuffer->appendwc(c))
 #define temporaryBufferAppendCurrent() temporaryBufferAppend(currentInputCharacter)
 
-#define Token(ttype, ...) ({token_t* _ = calloc(sizeof(token_t), 1); *_ = (token_t){.type=token_##ttype, .as = { .ttype =  {__VA_ARGS__}}}; _; })
+#define Token(ttype, ...) ({HTMLToken* _ = calloc(sizeof(HTMLToken), 1); *_ = (HTMLToken){.type=HTMLTokenType_##ttype, .as = { .ttype =  {__VA_ARGS__}}}; _; })
 
-#define prepareToken(ttype, ...) do { currentToken = (token_t*)Token(ttype, __VA_ARGS__); } while(0)
-#define finalizeToken() do { queue_push(&tokens_queue, (uint64_t)currentToken); currentToken = NULL; } while(0)
+#define prepareToken(ttype, ...) do { self->currentToken = Token(ttype, __VA_ARGS__); } while(0)
+#define finalizeToken() do { self->tokensQueue->enqueue(self->currentToken); self->currentToken = NULL; } while(0)
 #define enqueueToken(ttype, ...) do { prepareToken(ttype, __VA_ARGS__); finalizeToken(); } while(0)
 #define emitToken(ttype, ...) do { enqueueToken(ttype, __VA_ARGS__); goto emit_token; } while(0)
 
 #define emitEOFToken() emitToken(eof);
-#define emitCurrentCharacterToken() emitToken(character, .value = stream_current(stream))
+#define emitCurrentCharacterToken() emitToken(character, .value = self->stream->current())
 
-#define currentTagToken (currentToken->as.tag)
-#define currentCommentToken (currentToken->as.comment)
-#define currentDoctypeToken (currentToken->as.doctype)
+#define currentTagToken (self->currentToken->as.tag)
+#define currentCommentToken (self->currentToken->as.comment)
+#define currentDoctypeToken (self->currentToken->as.doctype)
 
-#define prepareAttribute() do { token_attribute_t _ = { wstring_new(), wstring_new() }; vector_append(currentTagToken.attributes, &_); } while(0)
-#define appendAttributeName(c) wstring_append(currentTagToken.attributes[vector_length(currentTagToken.attributes) - 1].name, c)
-#define appendAttributeValue(c) wstring_append(currentTagToken.attributes[vector_length(currentTagToken.attributes) - 1].value, c)
-#define appendTagName(c) wstring_append(currentTagToken.name, c)
-#define appendCommentData(c) wstring_append(currentCommentToken.data, c)
-#define appendDoctypeName(c) wstring_append(currentDoctypeToken.name, c)
-#define appendDoctypePublicIdentifier(c) wstring_append(currentDoctypeToken.public_identifier, c)
-#define appendDoctypeSystemIdentifier(c) wstring_append(currentDoctypeToken.system_identifier, c)
+#define prepareAttribute() do { HTMLTokenAttribute* _ = malloc(sizeof(HTMLTokenAttribute)); *_ = (HTMLTokenAttribute){ WString_new(), WString_new() }; currentTagToken.attributes->append(_); } while(0)
+#define appendAttributeName(c) (((HTMLTokenAttribute*)currentTagToken.attributes->at(-1))->name->appendwc(c))
+#define appendAttributeValue(c) (((HTMLTokenAttribute*)currentTagToken.attributes->at(-1))->value->appendwc(c))
+#define appendTagName(c) currentTagToken.name->appendwc(c)
+#define appendCommentData(c) currentCommentToken.data->appendwc(c)
+#define appendDoctypeName(c) currentDoctypeToken.name->appendwc(c)
+#define appendDoctypePublicIdentifier(c) currentDoctypeToken.public_identifier->appendwc(c)
+#define appendDoctypeSystemIdentifier(c) currentDoctypeToken.system_identifier->appendwc(c)
 
-#define consumedAsPartOfAnAttribute() (returnState == state_AttributeValueDoubleQuoted || returnState == state_AttributeValueSingleQuoted || returnState == state_AttributeValueUnquoted)
-#define flushConsumedCharacterReference() do {          \
-size_t len = wcslen(temporaryBuffer);                   \
-for(size_t i = 0; i < len; i++)                         \
-    if(consumedAsPartOfAnAttribute())                   \
-        appendAttributeValue(temporaryBuffer[i]);       \
-    else                                                \
-        enqueueToken(character, temporaryBuffer[i]);    \
+#define consumedAsPartOfAnAttribute() (self->returnState == HTMLTokenizer_state_AttributeValueDoubleQuoted || self->returnState == HTMLTokenizer_state_AttributeValueSingleQuoted || self->returnState == HTMLTokenizer_state_AttributeValueUnquoted)
+#define flushConsumedCharacterReference() do {                  \
+for(size_t i = 0; i < self->temporaryBuffer->length(); i++)     \
+    if(consumedAsPartOfAnAttribute())                           \
+        appendAttributeValue(self->temporaryBuffer->at(i));     \
+    else                                                        \
+        enqueueToken(character, self->temporaryBuffer->at(i));  \
 } while(0)
 
-#define emitTemporaryBufferAsCharacters() do {      \
-size_t len = wcslen(temporaryBuffer);               \
-for(size_t i = 0; i < len; i++)                     \
-    enqueueToken(character, temporaryBuffer[i]);    \
+#define emitTemporaryBufferAsCharacters() do {              \
+for(size_t i = 0; i < self->temporaryBuffer->length(); i++) \
+    enqueueToken(character, self->temporaryBuffer->at(i));  \
 } while(0)
 
-#define isAppropriateEndTagToken(token) (wcscmp(token->as.tag.name, lastStartTagName) == 0)
+#define isAppropriateEndTagToken(token) token->as.tag.name->equals(self->lastStartTagName)
 
-void tokenizer_switch_to(states_t targetState)
+void HTMLTokenizer_SwitchTo(HTMLTokenizer_states targetState, HTMLTokenizer* self)
 {
-    state = targetState;
+    self->state = targetState;
 }
 
-token_t* tokenizer_emit_token()
+HTMLToken* HTMLTokenizer_EmitToken(HTMLTokenizer* self)
 {
     emit_token:
-    if(tokens_queue.size > 0)
+    if(self->tokensQueue->size() > 0)
     {
-        token_t* result = (token_t*)queue_pop(&tokens_queue);
+        HTMLToken* result = self->tokensQueue->dequeue();
 
-        if(result->type == token_start_tag)
+        if(result->type == HTMLTokenType_start_tag)
         {
-            wstring_clear(lastStartTagName);
-            wstring_appends(lastStartTagName, result->as.tag.name);
+            self->lastStartTagName->clear();
+            self->lastStartTagName->append(result->as.tag.name);
         }
 
         return result;
     }
 
-    switch (state)
+    switch (self->state)
     {
         matchState(Data)
         {
             consumeInputCharacter();
             on(L'&')
             {
-                returnState = state_Data;
+                self->returnState = HTMLTokenizer_state_Data;
                 switchTo(CharacterReference);
             }
             on(L'<')
@@ -173,11 +148,13 @@ token_t* tokenizer_emit_token()
             while(true)
             {
                 if(consumeInputCharacter() == -1)
+                {
                     break;
+                }
 
                 temporaryBufferAppendCurrent();
 
-                size_t buffLen = wstring_length(temporaryBuffer);
+                size_t buffLen = self->temporaryBuffer->length();
 
                 bool match = false;
                 for(size_t i = 0; i < NAMED_ENTITIES_COUNT; i++)
@@ -185,16 +162,17 @@ token_t* tokenizer_emit_token()
                     size_t len = wcslen(entities[i].name);
 
                     bool correspondence = buffLen <= len;
-                    if(correspondence)
+                    if(correspondence == true)
+                    {
                         for(size_t j = 0; j < buffLen; j++)
-                            if(temporaryBuffer[j] != entities[i].name[j])
+                        {
+                            if(self->temporaryBuffer->at(j) != entities[i].name[j])
                             {
                                 correspondence = false;
                                 break;
                             }
-                    
-                    if(correspondence)
-                    {
+                        }
+
                         match = true;
                         if(len == buffLen)
                         {
@@ -206,13 +184,13 @@ token_t* tokenizer_emit_token()
 
                 if(!match)
                 {
-                    stream_reconsume(stream);
-                    wstring_popback(temporaryBuffer);
+                    self->stream->reconsume();
+                    self->temporaryBuffer->popback();
                     break;
                 }
-            };
+            }
 
-            if(something)
+            if(something == true)
             {
                 int64_t i = NAMED_ENTITIES_COUNT - 1;
                 for(; i >= 0; i--)
@@ -221,31 +199,43 @@ token_t* tokenizer_emit_token()
                         size_t len = wcslen(entities[i].name);
                         
                         if(consumedAsPartOfAnAttribute())
+                        {
                             if(entities[i].name[len - 1] != L';' && (currentInputCharacter == L'=' || isAsciiAlphanumeric(currentInputCharacter)))
                             {
                                 flushConsumedCharacterReference();
                                 switchToReturnState();
                             }
+                        }
 
                         if(entities[i].name[len - 1] != ';')
+                        {
                             parser_error("missing-semicolon-after-character-reference");
+                        }
 
-                        wstring_clear(temporaryBuffer);
+                        self->temporaryBuffer->clear();
                         wchar_t* value = entities[i].value;
-                        wstring_append(temporaryBuffer, value[0]);
+                        self->temporaryBuffer->appendwc(value[0]);
                         if(value[1] != 0)
-                            wstring_append(temporaryBuffer, value[1]);
+                        {
+                            self->temporaryBuffer->appendwc(value[1]);
+                        }
                         break;
                     }
                 for(; i >= 0; i--)
+                {
                     entities[i].flag = false;
+                }
             }
 
             flushConsumedCharacterReference();
-            if(something)
+            if(something == true)
+            {
                 switchToReturnState();
+            }
             else
+            {
                 switchTo(AmbiguousAmpersand);
+            }
         }
 
         matchState(AmbiguousAmpersand)
@@ -254,9 +244,13 @@ token_t* tokenizer_emit_token()
             on(AsciiAlphanumeric)
             {
                 if(consumedAsPartOfAnAttribute())
+                {
                     appendAttributeValue(currentInputCharacter);
+                }
                 else
+                {
                     emitCurrentCharacterToken();
+                }
             }
             on(L';')
             {
@@ -271,7 +265,7 @@ token_t* tokenizer_emit_token()
 
         matchState(NumericCharacterReference)
         {
-            characterReferenceCode = 0;
+            self->characterReferenceCode = 0;
 
             consumeInputCharacter();
             on(L'X')
@@ -325,21 +319,21 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiDigit)
             {
-                characterReferenceCode *= 16;
-                characterReferenceCode += currentInputCharacter - L'0';
-                redo();
+                self->characterReferenceCode *= 16;
+                self->characterReferenceCode += currentInputCharacter - L'0';
+                next();
             }
             on(AsciiUpperHexDigit)
             {
-                characterReferenceCode *= 16;
-                characterReferenceCode += currentInputCharacter - L'A' + 10;
-                redo();
+                self->characterReferenceCode *= 16;
+                self->characterReferenceCode += currentInputCharacter - L'A' + 10;
+                next();
             }
             on(AsciiLowerHexDigit)
             {
-                characterReferenceCode *= 16;
-                characterReferenceCode += currentInputCharacter - L'a' + 10;
-                redo();
+                self->characterReferenceCode *= 16;
+                self->characterReferenceCode += currentInputCharacter - L'a' + 10;
+                next();
             }
             on(L';')
             {
@@ -357,9 +351,9 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiDigit)
             {
-                characterReferenceCode *= 10;
-                characterReferenceCode += currentInputCharacter - L'0';
-                redo();
+                self->characterReferenceCode *= 10;
+                self->characterReferenceCode += currentInputCharacter - L'0';
+                next();
             }
             on(L';')
             {
@@ -374,38 +368,40 @@ token_t* tokenizer_emit_token()
 
         matchState(NumericCharacterReferenceEnd)
         {
-            if(characterReferenceCode == 0)
+            if(self->characterReferenceCode == 0)
             {
                 parser_error("null-character-reference");
-                characterReferenceCode = 0xFFFD;
+                self->characterReferenceCode = 0xFFFD;
             }
-            else if(characterReferenceCode > 0x10FFFF)
+            else if(self->characterReferenceCode > 0x10FFFF)
             {
                 parser_error("character-reference-outside-unicode-range");
-                characterReferenceCode = 0xFFFD;
+                self->characterReferenceCode = 0xFFFD;
             }
-            else if(isSurrogate(characterReferenceCode))
+            else if(isSurrogate(self->characterReferenceCode))
             {
                 parser_error("surrogate-character-reference");
-                characterReferenceCode = 0xFFFD;
+                self->characterReferenceCode = 0xFFFD;
             }
-            else if(isNoncharacter(characterReferenceCode))
+            else if(isNoncharacter(self->characterReferenceCode))
             {
                 parser_error("noncharacter-character-reference");
             }
-            else if(characterReferenceCode == 0x0D || (isControl(characterReferenceCode) && !isAsciiWhitespace(characterReferenceCode)))
+            else if(self->characterReferenceCode == 0x0D || (isControl(self->characterReferenceCode) && !isAsciiWhitespace(self->characterReferenceCode)))
             {
                 parser_error("control-character-reference");
                 for(size_t i = 0; i < CONTROL_CHARACTERS_COUNT; i++)
-                    if(characterReferenceCode == control_characters[i].value)
+                {
+                    if(self->characterReferenceCode == control_characters[i].value)
                     {
-                        characterReferenceCode = control_characters[i].replacement;
+                        self->characterReferenceCode = control_characters[i].replacement;
                         break;
                     }
+                }
             }
 
             temporaryBufferClear();
-            temporaryBufferAppend(characterReferenceCode);
+            temporaryBufferAppend(self->characterReferenceCode);
             flushConsumedCharacterReference();
             switchToReturnState();
         }
@@ -423,13 +419,13 @@ token_t* tokenizer_emit_token()
             }
             on(AsciiAlpha)
             {
-                prepareToken(start_tag, .name = wstring_new(), .selfClosing = false, .ackSelfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                prepareToken(start_tag, .name = WString_new(), .selfClosing = false, .ackSelfClosing = false, .attributes = Vector_new());
                 reconsumeIn(TagName);
             }
             on(L'?')
             {
                 parser_error("unexpected-question-mark-instead-of-tag-name");
-                prepareToken(comment, .data = wstring_new());
+                prepareToken(comment, .data = WString_new());
                 reconsumeIn(BogusComment);
             }
             on(-1)
@@ -451,7 +447,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiAlpha)
             {
-                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                prepareToken(end_tag, .name = WString_new(), .selfClosing = false, .attributes = Vector_new());
                 reconsumeIn(TagName);
             }
             on(L'>')
@@ -469,7 +465,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 parser_error("invalid-first-character-of-tag-name");
-                prepareToken(comment, .data = wstring_new());
+                prepareToken(comment, .data = WString_new());
                 reconsumeIn(BogusComment);
             }
         }
@@ -493,13 +489,13 @@ token_t* tokenizer_emit_token()
             on(AsciiUpperAlpha)
             {
                 appendTagName(towlower(currentInputCharacter));
-                redo();
+                next();
             }
             on(L'\0')
             {
                 parser_error("unexpected-null-character");
                 appendTagName(L'\uFFFD');
-                redo();
+                next();
             }
             on(-1)
             {
@@ -509,7 +505,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendTagName(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -539,7 +535,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'/')
             {
@@ -589,36 +585,36 @@ token_t* tokenizer_emit_token()
             on(AsciiUpperAlpha)
             {
                 appendAttributeName(towlower(currentInputCharacter));
-                redo();
+                next();
             }
             on('\0')
             {
                 parser_error("unexpected-null-character");
                 appendAttributeName(L'\uFFFD');
-                redo();
+                next();
             }
             on(L'"')
             {
                 parser_error("unexpected-character-in-attribute-name");
                 appendAttributeName(currentInputCharacter);
-                redo();
+                next();
             }
             on(L'\'')
             {
                 parser_error("unexpected-character-in-attribute-name");
                 appendAttributeName(currentInputCharacter);
-                redo();
+                next();
             }
             on(L'<')
             {
                 parser_error("unexpected-character-in-attribute-name");
                 appendAttributeName(currentInputCharacter);
-                redo();
+                next();
             }
             anythingElse()
             {
                 appendAttributeName(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -627,7 +623,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'/')
             {
@@ -659,7 +655,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'"')
             {
@@ -690,14 +686,14 @@ token_t* tokenizer_emit_token()
             }
             on(L'&')
             {
-                returnState = state_AttributeValueDoubleQuoted;
+                self->returnState = HTMLTokenizer_state_AttributeValueDoubleQuoted;
                 switchTo(CharacterReference);
             }
             on(L'\0')
             {
                 parser_error("unexpected-null-character");
                 appendAttributeValue(L'\uFFFD');
-                redo();
+                next();
             }
             on(-1)
             {
@@ -707,7 +703,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -720,14 +716,14 @@ token_t* tokenizer_emit_token()
             }
             on(L'&')
             {
-                returnState = state_AttributeValueSingleQuoted;
+                self->returnState = HTMLTokenizer_state_AttributeValueSingleQuoted;
                 switchTo(CharacterReference);
             }
             on(L'\0')
             {
                 parser_error("unexpected-null-character");
                 appendAttributeValue(L'\uFFFD');
-                redo();
+                next();
             }
             on(-1)
             {
@@ -737,7 +733,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -750,7 +746,7 @@ token_t* tokenizer_emit_token()
             }
             on(L'&')
             {
-                returnState = state_AttributeValueUnquoted;
+                self->returnState = HTMLTokenizer_state_AttributeValueUnquoted;
                 switchTo(CharacterReference);
             }
             on(L'>')
@@ -762,37 +758,37 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendAttributeValue(L'\uFFFD');
-                redo();
+                next();
             }
             on(L'"')
             {
                 parser_error("unexpected-character-in-unquoted-attribute-value");
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
             on(L'\'')
             {
                 parser_error("unexpected-character-in-unquoted-attribute-value");
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
             on(L'<')
             {
                 parser_error("unexpected-character-in-unquoted-attribute-value");
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
             on(L'=')
             {
                 parser_error("unexpected-character-in-unquoted-attribute-value");
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
             on(L'`')
             {
                 parser_error("unexpected-character-in-unquoted-attribute-value");
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
             on(-1)
             {
@@ -802,7 +798,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendAttributeValue(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -838,7 +834,7 @@ token_t* tokenizer_emit_token()
         {
             on(L"--")
             {
-                prepareToken(comment, .data = wstring_new());
+                prepareToken(comment, .data = WString_new());
                 switchTo(CommentStart);
             }
             on(L"DOCTYPE")
@@ -849,7 +845,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 parser_error("incorrectly-opened-comment");
-                prepareToken(comment, .data = wstring_new());
+                prepareToken(comment, .data = WString_new());
                 switchTo(BogusComment);
             }
         }
@@ -915,7 +911,7 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendCommentData(L'\uFFFD');
-                redo();
+                next();
             }
             on(-1)
             {
@@ -926,7 +922,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendCommentData(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -941,7 +937,7 @@ token_t* tokenizer_emit_token()
             on('<')
             {
                 appendCommentData(currentInputCharacter);
-                redo();
+                next();
             }
             anythingElse()
             {
@@ -1028,7 +1024,7 @@ token_t* tokenizer_emit_token()
             on(L'-')
             {
                 appendCommentData(L'-');
-                redo();
+                next();
             }
             on(-1)
             {
@@ -1091,12 +1087,12 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendCommentData(L'\uFFFD');
-                redo();
+                next();
             }
             anythingElse()
             {
                 appendCommentData(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -1130,18 +1126,18 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(AsciiUpperAlpha)
             {
-                prepareToken(doctype, .name = wstring_new());
+                prepareToken(doctype, .name = WString_new());
                 appendDoctypeName(towlower(currentInputCharacter));
                 switchTo(DOCTYPEName);
             }
             on(L'\0')
             {
                 parser_error("unexpected-null-character");
-                prepareToken(doctype, .name = wstring_new());
+                prepareToken(doctype, .name = WString_new());
                 appendDoctypeName(L'\uFFFD');
                 switchTo(DOCTYPEName);
             }
@@ -1161,7 +1157,7 @@ token_t* tokenizer_emit_token()
             }
             anythingElse()
             {
-                prepareToken(doctype, .name = wstring_new());
+                prepareToken(doctype, .name = WString_new());
                 appendDoctypeName(currentInputCharacter);
                 switchTo(DOCTYPEName);
             }
@@ -1182,13 +1178,13 @@ token_t* tokenizer_emit_token()
             on(AsciiUpperAlpha)
             {
                 appendDoctypeName(towlower(currentInputCharacter));
-                redo();
+                next();
             }
             on(L'\0')
             {
                 parser_error("unexpected-null-character");
                 appendDoctypeName(L'\uFFFD');
-                redo();
+                next();
             }
             on(-1)
             {
@@ -1200,7 +1196,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendDoctypeName(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -1209,7 +1205,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1258,13 +1254,13 @@ token_t* tokenizer_emit_token()
             on(L'"')
             {
                 parser_error("missing-whitespace-after-doctype-public-keyword");
-                currentDoctypeToken.public_identifier = wstring_new();
+                currentDoctypeToken.public_identifier = WString_new();
                 switchTo(DOCTYPEPublicIdentifierDoubleQuoted);
             }
             on(L'\'')
             {
                 parser_error("missing-whitespace-after-doctype-public-keyword");
-                currentDoctypeToken.public_identifier = wstring_new();
+                currentDoctypeToken.public_identifier = WString_new();
                 switchTo(DOCTYPEPublicIdentifierSingleQuoted);
             }
             on(L'>')
@@ -1294,16 +1290,16 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'"')
             {
-                currentDoctypeToken.public_identifier = wstring_new();
+                currentDoctypeToken.public_identifier = WString_new();
                 switchTo(DOCTYPEPublicIdentifierDoubleQuoted);
             }
             on(L'\'')
             {
-                currentDoctypeToken.public_identifier = wstring_new();
+                currentDoctypeToken.public_identifier = WString_new();
                 switchTo(DOCTYPEPublicIdentifierSingleQuoted);
             }
             on(L'>')
@@ -1339,7 +1335,7 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendDoctypePublicIdentifier(L'\uFFFD');
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1358,7 +1354,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendDoctypePublicIdentifier(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -1373,7 +1369,7 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendDoctypePublicIdentifier(L'\uFFFD');
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1392,7 +1388,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendDoctypePublicIdentifier(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -1411,13 +1407,13 @@ token_t* tokenizer_emit_token()
             on(L'"')
             {
                 parser_error("missing-whitespace-between-doctype-public-and-system-identifiers");
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierDoubleQuoted);
             }
             on(L'\'')
             {
                 parser_error("missing-whitespace-between-doctype-public-and-system-identifiers");
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierSingleQuoted);
             }
             on(-1)
@@ -1440,7 +1436,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1449,12 +1445,12 @@ token_t* tokenizer_emit_token()
             }
             on(L'"')
             {
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierDoubleQuoted);
             }
             on(L'\'')
             {
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierSingleQuoted);
             }
             on(-1)
@@ -1482,13 +1478,13 @@ token_t* tokenizer_emit_token()
             on(L'"')
             {
                 parser_error("missing-whitespace-after-doctype-system-keyword");
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierDoubleQuoted);
             }
             on(L'\'')
             {
                 parser_error("missing-whitespace-after-doctype-system-keyword");
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierSingleQuoted);
             }
             on(L'>')
@@ -1518,16 +1514,16 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'"')
             {
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierDoubleQuoted);
             }
             on(L'\'')
             {
-                currentDoctypeToken.system_identifier = wstring_new();
+                currentDoctypeToken.system_identifier = WString_new();
                 switchTo(DOCTYPESystemIdentifierSingleQuoted);
             }
             on(L'>')
@@ -1563,7 +1559,7 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendDoctypeSystemIdentifier(L'\uFFFD');
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1582,7 +1578,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendDoctypeSystemIdentifier(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -1597,7 +1593,7 @@ token_t* tokenizer_emit_token()
             {
                 parser_error("unexpected-null-character");
                 appendDoctypeSystemIdentifier(L'\uFFFD');
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1616,7 +1612,7 @@ token_t* tokenizer_emit_token()
             anythingElse()
             {
                 appendDoctypeSystemIdentifier(currentInputCharacter);
-                redo();
+                next();
             }
         }
 
@@ -1625,7 +1621,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                redo();
+                next();
             }
             on(L'>')
             {
@@ -1657,7 +1653,7 @@ token_t* tokenizer_emit_token()
             on(L'\0')
             {
                 parser_error("unexpected-null-character");
-                redo();
+                next();
             }
             on(-1)
             {
@@ -1666,7 +1662,7 @@ token_t* tokenizer_emit_token()
             }
             anythingElse()
             {
-                redo();
+                next();
             }
         }
 
@@ -1675,7 +1671,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(L'&')
             {
-                returnState = state_RCDATA;
+                self->returnState = HTMLTokenizer_state_RCDATA;
                 switchTo(CharacterReference);
             }
             on(L'<')
@@ -1717,7 +1713,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiAlpha)
             {
-                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                prepareToken(end_tag, .name = WString_new(), .selfClosing = false, .attributes = Vector_new());
                 reconsumeIn(RCDATAEndTagName);
             }
             anythingElse()
@@ -1733,8 +1729,10 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiWhitespace)
             {
-                if(isAppropriateEndTagToken(currentToken))
+                if(isAppropriateEndTagToken(self->currentToken))
+                {
                     switchTo(BeforeAttributeName);
+                }
                 else
                 {
                     enqueueToken(character, L'<');
@@ -1745,8 +1743,10 @@ token_t* tokenizer_emit_token()
             }
             on(L'/')
             {
-                if(isAppropriateEndTagToken(currentToken))
+                if(isAppropriateEndTagToken(self->currentToken))
+                {
                     switchTo(SelfClosingStartTag);
+                }
                 else
                 {
                     enqueueToken(character, L'<');
@@ -1757,7 +1757,7 @@ token_t* tokenizer_emit_token()
             }
             on(L'>')
             {
-                if(isAppropriateEndTagToken(currentToken)) 
+                if(isAppropriateEndTagToken(self->currentToken)) 
                 {
                     finalizeToken();
                     switchTo(Data);
@@ -1774,13 +1774,13 @@ token_t* tokenizer_emit_token()
             {
                 appendTagName(towlower(currentInputCharacter));
                 temporaryBufferAppend(currentInputCharacter);
-                redo();
+                next();
             }
             on(AsciiLowerAlpha)
             {
                 appendTagName(currentInputCharacter);
                 temporaryBufferAppend(currentInputCharacter);
-                redo();
+                next();
             }
             anythingElse()
             {
@@ -1833,7 +1833,7 @@ token_t* tokenizer_emit_token()
             consumeInputCharacter();
             on(AsciiAlpha)
             {
-                prepareToken(end_tag, .name = wstring_new(), .selfClosing = false, .attributes = vector_new(sizeof(token_attribute_t)));
+                prepareToken(end_tag, .name = WString_new(), .selfClosing = false, .attributes = Vector_new());
                 reconsumeIn(RAWTEXTEndTagName);
             }
             anythingElse()
@@ -1848,8 +1848,10 @@ token_t* tokenizer_emit_token()
         {
             on(AsciiWhitespace)
             {
-                if(isAppropriateEndTagToken(currentToken))
+                if(isAppropriateEndTagToken(self->currentToken))
+                {
                     switchTo(BeforeAttributeName);
+                }
                 else
                 {
                     enqueueToken(character, L'<');
@@ -1860,8 +1862,10 @@ token_t* tokenizer_emit_token()
             }
             on(L'/')
             {
-                if(isAppropriateEndTagToken(currentToken))
+                if(isAppropriateEndTagToken(self->currentToken))
+                {
                     switchTo(SelfClosingStartTag);
+                }
                 else
                 {
                     enqueueToken(character, L'<');
@@ -1872,7 +1876,7 @@ token_t* tokenizer_emit_token()
             }
             on(L'>')
             {
-                if(isAppropriateEndTagToken(currentToken)) 
+                if(isAppropriateEndTagToken(self->currentToken)) 
                 {
                     finalizeToken();
                     switchTo(Data);
@@ -1889,13 +1893,13 @@ token_t* tokenizer_emit_token()
             {
                 appendTagName(towlower(currentInputCharacter));
                 temporaryBufferAppend(currentInputCharacter);
-                redo();
+                next();
             }
             on(AsciiLowerAlpha)
             {
                 appendTagName(currentInputCharacter);
                 temporaryBufferAppend(currentInputCharacter);
-                redo();
+                next();
             }
             anythingElse()
             {
@@ -1911,34 +1915,67 @@ token_t* tokenizer_emit_token()
     }
 }
 
-void tokenizer_dispose_token(token_t* token)
+void HTMLTokenizer_DisposeToken(HTMLToken* token, HTMLTokenizer* self)
 {
-    if(!token)
+    if(token == NULL)
+    {
         return;
+    }
 
-    if(token->type == token_start_tag && token->as.start_tag.selfClosing && token->as.start_tag.ackSelfClosing == false)
+    if(token->type == HTMLTokenType_start_tag && token->as.start_tag.selfClosing && token->as.start_tag.ackSelfClosing == false)
     {
         parser_error("non-void-html-element-start-tag-with-trailing-solidus");
     }
 
     switch (token->type)
     {
-    case token_start_tag:
-    case token_end_tag:
-        if(token->as.tag.name) wstring_free(token->as.tag.name);
-        if(token->as.tag.attributes) vector_free(token->as.tag.attributes);
+    case HTMLTokenType_start_tag:
+    case HTMLTokenType_end_tag:
+        if(token->as.tag.name) WString_delete(token->as.tag.name);
+        if(token->as.tag.attributes) Vector_delete(token->as.tag.attributes);
         break;
 
-    case token_doctype:
-        if(token->as.doctype.name) wstring_free(token->as.doctype.name);
-        if(token->as.doctype.public_identifier) wstring_free(token->as.doctype.public_identifier);
-        if(token->as.doctype.system_identifier) wstring_free(token->as.doctype.system_identifier);
+    case HTMLTokenType_doctype:
+        if(token->as.doctype.name) WString_delete(token->as.doctype.name);
+        if(token->as.doctype.public_identifier) WString_delete(token->as.doctype.public_identifier);
+        if(token->as.doctype.system_identifier) WString_delete(token->as.doctype.system_identifier);
         break;
 
-    case token_comment:
-        if(token->as.comment.data) wstring_free(token->as.comment.data);
+    case HTMLTokenType_comment:
+        if(token->as.comment.data) WString_delete(token->as.comment.data);
+        break;
+
+    default:
         break;
     }
 
     free(token);
+}
+
+HTMLTokenizer* HTMLTokenizer_new(Stream* stream)
+{
+    HTMLTokenizer* self = Object_create(sizeof(HTMLTokenizer), 3);
+    self->stream = stream;
+    self->state = HTMLTokenizer_state_Data;
+    self->returnState = HTMLTokenizer_state_NONE;
+    self->temporaryBuffer = WString_new();
+    self->characterReferenceCode = L'\0';
+    self->tokensQueue = Queue_new();
+    self->currentToken = NULL;
+    self->lastStartTagName = WString_new();
+    
+    ObjectFunction(HTMLTokenizer, EmitToken, 0);
+    ObjectFunction(HTMLTokenizer, DisposeToken, 1);
+    ObjectFunction(HTMLTokenizer, SwitchTo, 1);
+
+    Object_prepare(&self->object);
+    return self;
+}
+
+void HTMLTokenizer_delete(HTMLTokenizer* self)
+{
+    WString_delete(self->temporaryBuffer);
+    Queue_delete(self->tokensQueue);
+    WString_delete(self->lastStartTagName);
+    self->object.destroy();
 }

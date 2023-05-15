@@ -4,73 +4,93 @@
 #include <assert.h>
 #include <wctype.h>
 
-stream_t stream_new(consumable_t source)
+wchar_t Stream_consume(Stream* self)
 {
-    stream_t stream;
-    stream.source = source;
-    stream.data = calloc(sizeof(wchar_t), 1024);
-    stream.pos = 0;
-    return stream;
-}
-
-void stream_free(stream_t* stream)
-{
-    stream->source.free(stream->source.data);
-    free(stream->data);
-}
-
-wchar_t stream_consume(stream_t* stream)
-{
-    if(stream->data[stream->pos] == L'\0')
-        return stream->data[stream->pos++] = stream->source.consume(stream->source.data);
+    if(self->data[self->pos] == L'\0')
+    {
+        return self->data[self->pos++] = self->source.consume(self->source.data);
+    }
     else
-        return stream->data[stream->pos++];
+    {
+        return self->data[self->pos++];
+    }
 }
 
-wchar_t stream_current(stream_t* stream)
+wchar_t Stream_current(Stream* self)
 {
-    return stream->data[stream->pos - 1];
+    return self->data[self->pos - 1];
 }
 
-void stream_reconsume(stream_t* stream)
+void Stream_reconsume(Stream* self)
 {
-    assert(stream->pos > 0);
-    stream->pos--;
+    assert(self->pos > 0);
+    self->pos--;
 }
 
-size_t stream_consume_n(stream_t* stream, size_t n, wchar_t* out)
+size_t Stream_consume_n(size_t n, wchar_t* out, Stream* self)
 {
     for(size_t i = 0; i < n; i++)
     {
-        wchar_t c = stream_consume(stream);
+        wchar_t c = self->consume();
         if(c == L'\0')
+        {
             return i;
+        }
         *out++ = c;
     }
     return n;
 }
 
-size_t stream_reconsume_n(stream_t* stream, size_t n)
+size_t Stream_reconsume_n(size_t n, Stream* self)
 {
     size_t i;
-    for(i = 0; stream->pos > 0 && i < n; i++)
-        stream_reconsume(stream);
+    for(i = 0; self->pos > 0 && i < n; i++)
+    {
+        self->reconsume();
+    }
     return i;
 }
 
-bool stream_match(stream_t* stream, wchar_t* str, bool consume, bool case_sensitive)
+bool Stream_match(wchar_t* str, bool consume, bool case_sensitive, Stream* self)
 {
     size_t i;
     for(i = 0; str[i] != L'\0'; i++)
     {
-        wchar_t c = stream_consume(stream);
+        wchar_t c = self->consume();
         if(case_sensitive ? (c != str[i]) : (towlower(c) != towlower(str[i])))
         {
-            stream_reconsume_n(stream, i + 1);
+            self->reconsume_n(i + 1);
             return false;
         }
     }
-    if(!consume)
-        stream_reconsume_n(stream, i + 1);
+    if(consume == false)
+    {
+        self->reconsume_n(i + 1);
+    }
     return true;
+}
+
+Stream* Stream_new(consumable_t source)
+{
+    Stream* self = Object_create(sizeof(Stream), 5);
+    self->source = source;
+    self->data = calloc(sizeof(wchar_t), 1024);
+    self->pos = 0;
+
+    ObjectFunction(Stream, consume, 0);
+    ObjectFunction(Stream, current, 0);
+    ObjectFunction(Stream, reconsume, 0);
+    ObjectFunction(Stream, consume_n, 2);
+    ObjectFunction(Stream, reconsume_n, 1);
+    ObjectFunction(Stream, match, 3);
+
+
+    Object_prepare(&self->object);
+    return self;
+}
+
+void Stream_delete(Stream* self)
+{
+    self->source.free(self->source.data);
+    self->object.destroy();
 }

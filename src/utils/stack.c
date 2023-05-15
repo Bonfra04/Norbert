@@ -2,39 +2,47 @@
 
 #include <stdlib.h>
 
-#define STACK_CAPACITY 1024
+#define STACK_CAPACITY 16
 
-stack_t stack_create()
+size_t Stack_size(Stack* self)
 {
-    stack_t stack;
-    stack.capacity = STACK_CAPACITY;
-    stack.size = 0;
-    stack.data = malloc(sizeof(uint64_t) * stack.capacity);
-    return stack;
+    return self->siz;
 }
 
-void stack_destroy(stack_t* stack)
+void* Stack_peek(Stack* self)
 {
-    free(stack->data);
+    return self->data[self->siz - 1];
 }
 
-void stack_push(stack_t* stack, uint64_t value)
+void Stack_push(void* value, Stack* self)
 {
-    if(stack->size == stack->capacity)
+    if(self->siz == self->capacity)
     {
-        stack->capacity *= 2;
-        stack->data = realloc(stack->data, sizeof(uint64_t) * stack->capacity);
+        self->capacity *= 2;
+        self->data = realloc(self->data, sizeof(void*) * self->capacity);
     }
 
-    stack->data[stack->size++] = value;
+    self->data[self->siz++] = value;
 }
 
-uint64_t stack_pop(stack_t* stack)
+void* Stack_pop(Stack* self)
 {
-    return stack->data[--stack->size];
+    return self->data[--self->siz];
 }
 
-uint64_t* stack_peek(stack_t* stack)
+Stack* Stack_new()
 {
-    return &stack->data[stack->size - 1];
+    Stack* self = Object_create(sizeof(Stack), 4);
+    self->data = malloc(sizeof(void*) * STACK_CAPACITY);
+    self->capacity = STACK_CAPACITY;
+    self->siz = 0;
+
+    ObjectFunction(Stack, size, 0);
+    ObjectFunction(Stack, peek, 0);
+
+    ObjectFunction(Stack, pop, 0);
+    ObjectFunction(Stack, push, 1);
+
+    Object_prepare(&self->object);
+    return self;
 }

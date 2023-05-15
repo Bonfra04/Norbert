@@ -1,4 +1,4 @@
-#include "named_entities.h"
+#include <html/named_entities.h>
 
 control_character_t control_characters[] = {
     (control_character_t){ .value = 0x80, .replacement = 0x20AC},

@@ -2,42 +2,62 @@
 
 #include <stdlib.h>
 
-queue_t queue_create()
+size_t Queue_size(Queue* self)
 {
-    queue_t queue;
-    queue.front = NULL;
-    queue.back = NULL;
-    queue.size = 0;
-    return queue;
+    return self->siz;
 }
 
-void queue_push(queue_t* queue, uint64_t value)
+void Queue_enqueue(void* value, Queue* self)
 {
     queue_node_t* node = (queue_node_t*)malloc(sizeof(queue_node_t));
     node->value = value;
-    node->next = queue->back;
+    node->next = self->back;
     node->prev = NULL;
-    if(queue->back != NULL)
-        queue->back->prev = node;
-    queue->back = node;
-    if(queue->front == NULL)
-        queue->front = node;
-    queue->size++;
+    if(self->back != NULL)
+        self->back->prev = node;
+    self->back = node;
+    if(self->front == NULL)
+        self->front = node;
+    self->siz++;
 }
 
-uint64_t queue_pop(queue_t* queue)
+void* Queue_dequeue(Queue* self)
 {
-    if(queue->size == 0)
-        return -1;
+    if(self->siz == 0)
+        return NULL;
 
-    queue_node_t* node = queue->front;
-    uint64_t value = node->value;
-    queue->front = node->prev;
-    if(queue->front)
-        queue->front->next = NULL;
+    queue_node_t* node = self->front;
+    void* value = node->value;
+    self->front = node->prev;
+    if(self->front)
+        self->front->next = NULL;
     else
-        queue->back = NULL;
+        self->back = NULL;
     free(node);
-    queue->size--;
+    self->siz--;
     return value;
+}
+
+Queue* Queue_new()
+{
+    Queue* self = Object_create(sizeof(Queue), 3);
+    self->front = NULL;
+    self->back = NULL;
+    self->siz = 0;
+
+    ObjectFunction(Queue, size, 0);
+
+    ObjectFunction(Queue, enqueue, 1);
+    ObjectFunction(Queue, dequeue, 0);
+
+    Object_prepare(&self->object);
+    return self;
+}
+
+void Queue_delete(Queue* self)
+{
+    while(self->size() > 0)
+        self->dequeue();
+
+    self->object.destroy();
 }

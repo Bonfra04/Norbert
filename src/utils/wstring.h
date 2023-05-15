@@ -1,15 +1,62 @@
 #pragma once
 
+#include "oop/object.h"
+
 #include <wchar.h>
+#include <stdbool.h>
 
-typedef wchar_t* wstring_t;
+typedef struct WStringRec
+{
+    Object object;
 
-wstring_t wstring_new();
-wstring_t wstring_copy(const wstring_t str);
-size_t wstring_length(const wstring_t str);
-void wstring_free(wstring_t str);
-void wstring_append(wstring_t str, wchar_t append);
-void wstring_appends(wstring_t str, wchar_t* append);
-void wstring_clear(wstring_t str);
-void wstring_popback(wstring_t str);
-void wstring_popfront(wstring_t str);
+    size_t (*length)();
+    bool (*empty)();
+    void (*clear)();
+    wchar_t (*at)(size_t index);
+    struct WStringRec* (*substr)(size_t start, size_t length);
+
+    void (*appendwc)(wchar_t c);
+    void (*appendc)(char c);
+    void (*appendws)(wchar_t* ws);
+    void (*appends)(char* s);
+    void (*append)(struct WStringRec* other);
+    wchar_t (*popback)();
+    wchar_t (*popfront)();
+
+    bool (*equals)(struct WStringRec* other);
+    bool (*equalss)(char* other);
+    bool (*equalsws)(wchar_t* other);
+    bool (*equalsi)(struct WStringRec* other);
+    bool (*equalssi)(char* other);
+    bool (*equalswsi)(wchar_t* other);
+
+    bool (*equalsOneOff)(struct WStringRec* others[]);
+
+    bool (*startswith)(struct WStringRec* other);
+    bool (*startswiths)(char* other);
+    bool (*startswithws)(wchar_t* other);
+    bool (*startswithi)(struct WStringRec* other);
+    bool (*startswithsi)(char* other);
+    bool (*startswithwsi)(wchar_t* other);
+
+    bool (*endswith)(struct WStringRec* other);
+    bool (*endswiths)(char* other);
+    bool (*endswithws)(wchar_t* other);
+    bool (*endswithi)(struct WStringRec* other);
+    bool (*endswithsi)(char* other);
+    bool (*endswithwsi)(wchar_t* other);
+
+    bool (*contains)(struct WStringRec* other);
+    bool (*containss)(char* other);
+    bool (*containsws)(wchar_t* other);
+    bool (*containsi)(struct WStringRec* other);
+    bool (*containssi)(char* other);
+    bool (*containswsi)(wchar_t* other);
+
+    wchar_t* data;
+    size_t capacity;
+    size_t len;
+} WString;
+
+WString* WString_new();
+void WString_delete(WString* self);

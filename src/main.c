@@ -1,6 +1,6 @@
 #include "stream/stream.h"
-#include "tokenizer.h"
-#include "parser.h"
+#include "html/tokenizer.h"
+#include "html/parser.h"
 
 #include "utils/vector.h"
 #include "utils/wstring.h"
@@ -27,7 +27,7 @@ void pretty_print(type(DOM.Node)* node, int64_t indentation, bool is_last)
 
     if(node->nodeType == DOM.Node.COMMENT_NODE)
     {
-        printf("Comment: '%ls'\n", node->as.Comment.data);
+        printf("Comment: '%ls'\n", node->as.Comment.data->data);
     }
 
     else if(node->nodeType == DOM.Node.DOCUMENT_NODE)
@@ -37,29 +37,29 @@ void pretty_print(type(DOM.Node)* node, int64_t indentation, bool is_last)
 
     else if(node->nodeType == DOM.Node.DOCUMENT_TYPE_NODE)
     {
-        printf("DocumentType: '%ls'\n", node->as.DocumentType.name);
+        printf("DocumentType: '%ls'\n", node->as.DocumentType.name->data);
     }
 
     else if(node->nodeType == DOM.Node.ELEMENT_NODE)
     {
-        printf("Element: '%ls' ", node->as.Element.localName);
+        printf("Element: '%ls' ", node->as.Element.localName->data);
         for(size_t i = 0; i < node->as.Element.attributes->length; i++)
         {
-            type(DOM.Node)* attr = node->as.Element.attributes->attributes[i];
-            printf("[%ls='%ls'] ", attr->as.Attr.name, attr->as.Attr.value);
+            type(DOM.Node)* attr = node->as.Element.attributes->attributes->at(i);
+            printf("[%ls='%ls'] ", attr->as.Attr.name->data, attr->as.Attr.value->data);
         }
         printf("\n");
     }
 
     else if(node->nodeType == DOM.Node.TEXT_NODE)
     {
-        printf("Text: '%ls'\n", node->as.Text.wholeText);
+        printf("Text: '%ls'\n", node->as.Text.wholeText->data);
     }
 
-    size_t len = vector_length(node->childNodes);
+    size_t len = node->childNodes->length();
     for (size_t i = 0; i < len; i++)
     {
-        type(DOM.Node)* child = node->childNodes[i];
+        type(DOM.Node)* child = node->childNodes->at(i);
         pretty_print(child, indentation+1, i == len - 1);
     }
 }
@@ -69,7 +69,7 @@ int main()
     // freopen("/dev/null", "w", stderr);
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    stream_t input_stream = stream_new(wsconsumable_new(
+    Stream* input_stream = Stream_new(wsconsumable_new(
 L"<!--test-->"
 L"<!DOCTYPE html>"
 L"<!--anothercomment-->"
@@ -81,9 +81,10 @@ L"<p>inp</p>afp"
 L"</body>"
 L"</html>"
     ));
-    tokenizer_init(&input_stream);
     
-    parser_init();
-    type(DOM.Node)* document = parser_parse();
+    HTMLParser* parser = Parser_new(input_stream);
+    type(DOM.Node)* document = parser->parse();
     pretty_print(document, 0, false);
+
+    Parser_delete(parser);
 }
