@@ -5,7 +5,7 @@ DIR_OBJ	= ./bin-int
 C_FILES = $(shell find . -wholename "./src/*.c")
 OBJ_FILES = $(C_FILES:%.c=$(DIR_OBJ)/%.o)
 
-CC_FLAGS = -g -O0 -c -I $(DIR_ROOT)/include -I $(DIR_ROOT)/src -Wno-address-of-packed-member
+CC_FLAGS = -g -O0 -c -Wall -Wno-unused-label -I $(DIR_ROOT)/include -I $(DIR_ROOT)/src -Wno-address-of-packed-member
 
 .PHONY: all clean
 
