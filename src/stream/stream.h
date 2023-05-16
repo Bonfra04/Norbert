@@ -12,6 +12,8 @@ typedef struct StreamRec
 
     wchar_t (*consume)();
     wchar_t (*current)();
+    wchar_t (*next)();
+    wchar_t (*peek)(size_t n);
     void (*reconsume)();
     size_t (*consume_n)(size_t n, wchar_t* out);
     size_t (*reconsume_n)(size_t n);

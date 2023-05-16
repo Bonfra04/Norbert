@@ -21,6 +21,25 @@ wchar_t Stream_current(Stream* self)
     return self->data[self->pos - 1];
 }
 
+wchar_t Stream_next(Stream* self)
+{
+    return self->peek(1);
+}
+
+wchar_t Stream_peek(size_t n, Stream* self)
+{
+    for(size_t i = 0; i < n; i++)
+    {
+        self->consume();
+    }
+    wchar_t c = self->current();
+    for(size_t i = 0; i < n; i++)
+    {
+        self->reconsume();
+    }
+    return c;
+}
+
 void Stream_reconsume(Stream* self)
 {
     assert(self->pos > 0);
@@ -36,7 +55,10 @@ size_t Stream_consume_n(size_t n, wchar_t* out, Stream* self)
         {
             return i;
         }
-        *out++ = c;
+        if(out != NULL)
+        {
+            *out++ = c;
+        }
     }
     return n;
 }
@@ -72,13 +94,15 @@ bool Stream_match(wchar_t* str, bool consume, bool case_sensitive, Stream* self)
 
 Stream* Stream_new(consumable_t source)
 {
-    Stream* self = Object_create(sizeof(Stream), 5);
+    Stream* self = Object_create(sizeof(Stream), 8);
     self->source = source;
     self->data = calloc(sizeof(wchar_t), 1024);
     self->pos = 0;
 
     ObjectFunction(Stream, consume, 0);
     ObjectFunction(Stream, current, 0);
+    ObjectFunction(Stream, next, 0);
+    ObjectFunction(Stream, peek, 1);
     ObjectFunction(Stream, reconsume, 0);
     ObjectFunction(Stream, consume_n, 2);
     ObjectFunction(Stream, reconsume_n, 1);
