@@ -1,86 +1,67 @@
-#include <css/tokenizer.h>
+#include "utils/stream/stream.h"
+#include "utils/stream/string_wc_consumable.h"
+#include "html/tokenizer.h"
+#include "html/parser.h"
 
+#include "utils/vector.h"
+#include "utils/wstring.h"
+
+#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdint.h>
 
-void print_token(CSSToken* t)
+// #include "tests/perform.h"
+
+void pretty_print(type(DOM.Node)* node, int64_t indentation, bool is_last)
 {
-    switch (t->type)
+    if(indentation > 0)
     {
-    case CSSTokenType_whitespace:
-        printf("<whitespace-token>");
-        break;
-    case CSSTokenType_badString:
-        printf("<bad-string-token>");
-        break;
-    case CSSTokenType_string:
-        printf("<string-token value=\"%ls\">", t->as.string.value->data);
-        break;
-    case CSSTokenType_hash:
-        printf("<hash-token value=\"%ls\" type=%s>", t->as.hash.value->data, t->as.hash.type == CSSToken_hash_id ? "id" : "unrestricted");
-        break;
-    case CSSTokenType_leftParenthesis:
-        printf("<left-parenthesis-token>");
-        break;
-    case CSSTokenType_rightParenthesis:
-        printf("<right-parenthesis-token>");
-        break;
-    case CSSTokenType_comma:
-        printf("<comma-token>");
-        break;
-    case CSSTokenType_colon:
-        printf("<colon-token>");
-        break;
-    case CSSTokenType_semicolon:
-        printf("<semicolon-token>");
-        break;
-    case CSSTokenType_delim:
-        printf("<delim-token value=%lc>", t->as.delim.value);
-        break;
-    case CSSTokenType_number:
-        printf("<number-token value=%f type=%s>", t->as.number.value, t->as.number.type == CSSToken_number_integer ? "integer" : "number");
-        break;
-    case CSSTokenType_percentage:
-        printf("<percentage-token value=%f%%>", t->as.percentage.value);
-        break;
-    case CSSTokenType_dimension:
-        printf("<dimension-token value=%f unit=\"%ls\" type=%s>", t->as.dimension.value, t->as.dimension.unit->data, t->as.dimension.type == CSSToken_dimension_integer ? "integer" : "number");
-        break;
-    case CSSTokenType_CDC:
-        printf("<cdc-token>");
-        break;
-    case CSSTokenType_url:
-        printf("<url-token value=\"%ls\">", t->as.url.value->data);
-        break;
-    case CSSTokenType_badUrl:
-        printf("<bad-url-token>");
-        break;
-    case CSSTokenType_function:
-        printf("<function-token value=\"%ls\">", t->as.function.value->data);
-        break;
-    case CSSTokenType_atKeyword:
-        printf("<at-keyword-token value=\"%ls\">", t->as.atKeyword.value->data);
-        break;
-    case CSSTokenType_CDO:
-        printf("<cdo-token>");
-        break;
-    case CSSTokenType_leftCurlyBracket:
-        printf("<left-curly-bracket-token>");
-        break;
-    case CSSTokenType_rightCurlyBracket:
-        printf("<right-curly-bracket-token>");
-        break;
-    case CSSTokenType_leftSquareBracket:
-        printf("<left-square-bracket-token>");
-        break;
-    case CSSTokenType_rightSquareBracket:
-        printf("<right-square-bracket-token>");
-        break;
-    case CSSTokenType_ident:
-        printf("<ident-token value=\"%ls\">", t->as.ident.value->data);
-        break;
-    case CSSTokenType_EOF:
-        printf("<EOF-token>");
-        break;
+        if(indentation > 1)
+        {
+            fputs("    ", stdout);
+            for(size_t i = 2; i < indentation; i++)
+                fputs("│   ", stdout);
+        }
+        fputs(is_last ? "└── " : "├── ", stdout);
+    }
+
+    if(node->nodeType == DOM.Node.COMMENT_NODE)
+    {
+        printf("Comment: '%ls'\n", node->as.Comment.data->data);
+    }
+
+    else if(node->nodeType == DOM.Node.DOCUMENT_NODE)
+    {
+        printf("Document\n");
+    }
+
+    else if(node->nodeType == DOM.Node.DOCUMENT_TYPE_NODE)
+    {
+        printf("DocumentType: '%ls'\n", node->as.DocumentType.name->data);
+    }
+
+    else if(node->nodeType == DOM.Node.ELEMENT_NODE)
+    {
+        printf("Element: '%ls' ", node->as.Element.localName->data);
+        for(size_t i = 0; i < node->as.Element.attributes->length; i++)
+        {
+            type(DOM.Node)* attr = node->as.Element.attributes->attributes->at(i);
+            printf("[%ls='%ls'] ", attr->as.Attr.name->data, attr->as.Attr.value->data);
+        }
+        printf("\n");
+    }
+
+    else if(node->nodeType == DOM.Node.TEXT_NODE)
+    {
+        printf("Text: '%ls'\n", node->as.Text.wholeText->data);
+    }
+
+    size_t len = node->childNodes->length();
+    for (size_t i = 0; i < len; i++)
+    {
+        type(DOM.Node)* child = node->childNodes->at(i);
+        pretty_print(child, indentation+1, i == len - 1);
     }
 }
 
@@ -89,23 +70,23 @@ int main()
     // freopen("/dev/null", "w", stderr);
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    Stream* input_stream = Stream_new(wsconsumable_new(
-L"-->"
+    WCStream* input_stream = WCStream_new((WCConsumable*)StringWCConsumable_new(
+L"<!--test-->"
+L"<!DOCTYPE html>"
+L"<!--anothercomment-->"
+L"<html lang=eng>"
+L"<!--comment-->"
+L"<head> <title>titlest</title></head>"
+L"<body>"
+L"<p>inp</p>afp"
+L"</body>"
+L"</html>"
     ));
     
-    CSSTokenizer* tokenizer = CSSTokenizer_new(input_stream);
-    
-    while(true)
-    {
-        CSSToken* token = tokenizer->ConsumeToken();
-        bool eof = token->type == CSSTokenType_EOF;
+    HTMLParser* parser = HTMLParser_new(input_stream);
+    type(DOM.Node)* document = parser->parse();
+    pretty_print(document, 0, false);
 
-        print_token(token);
-
-        tokenizer->DisposeToken(token);
-        if(eof)
-            break;
-    }
-
-    CSSTokenizer_delete(tokenizer);
+    parser->delete();
+    input_stream->delete();
 }

@@ -7,7 +7,7 @@
 
 typedef struct WStringRec
 {
-    Object object;
+    ObjectExtends(Object);
 
     size_t (*length)();
     bool (*empty)();
@@ -59,4 +59,3 @@ typedef struct WStringRec
 } WString;
 
 WString* WString_new();
-void WString_delete(WString* self);

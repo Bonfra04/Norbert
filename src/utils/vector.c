@@ -99,9 +99,16 @@ static void* Vector_find_first(bool (*matcher)(void* value), Vector* self)
     return NULL;
 }
 
+static void Vector_delete(Vector* self)
+{
+    free(self->data);
+    self->super.delete();
+}
+
 Vector* Vector_new()
 {
-    Vector* self = Object_create(sizeof(Vector), 9);
+    Vector* self = ObjectBase(Vector, 9);
+
     self->data = malloc(sizeof(void*) * VECTOR_CAPACITY);
     self->capacity = VECTOR_CAPACITY;
     self->len = 0;
@@ -118,12 +125,6 @@ Vector* Vector_new()
 
     ObjectFunction(Vector, find_first, 1);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
-}
-
-void Vector_delete(Vector* self)
-{
-    free(self->data);
-    self->object.destroy();
 }

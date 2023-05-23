@@ -1,11 +1,10 @@
-#include <assert.h>
-#include <errno.h>
-#include <malloc.h>
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-
+#define _GNU_SOURCE
 #include <sys/mman.h>
+
+#include <assert.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #include "object.h"
 
@@ -29,30 +28,30 @@ void* Object_trampoline(Object* self, void* target, int argCount)
         { 0x49, 0xb9 },
     };
     memcpy(self->codePagePtr, opcode[argCount], sizeof(opcode[argCount]));
-    memcpy(self->codePagePtr + 2, &self, sizeof(void *));
+    memcpy(self->codePagePtr + 2, &self, sizeof(void*));
     memcpy(self->codePagePtr + 10, kTrampoline + 10, sizeof(kTrampoline) - 10);
-    memcpy(self->codePagePtr + 16, &target, sizeof(void *));
+    memcpy(self->codePagePtr + 16, &target, sizeof(void*));
     self->codePagePtr += sizeof(kTrampoline);
     return self->codePagePtr - sizeof(kTrampoline);
 }
 
-void Object_destroy(Object* self)
+static void Object_delete(Object* self)
 {
     int ret = munmap(self->codePage, self->codePageSize);
     assert(!ret);
     free(self);
 }
 
-void* Object_create(size_t size, int functionCount)
+void* Object_new(size_t size, int functionCount)
 {
-    functionCount += 1;
+    functionCount += 2; // delete, destructor
 
-    Object *self = malloc(size);
+    Object* self = malloc(size);
     self->codePageSize = functionCount * sizeof(kTrampoline);
     self->codePage = mmap(NULL, self->codePageSize, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
     self->codePagePtr = self->codePage;
 
-    self->destroy = Object_trampoline(self, Object_destroy, 0);
+    self->delete = Object_trampoline(self, Object_delete, 0);
 
     return self;
 }
@@ -61,4 +60,38 @@ void Object_prepare(Object* self)
 {
     int ret = mprotect(self->codePage, self->codePageSize, PROT_READ | PROT_EXEC);
     assert(!ret);
+}
+
+static void updateTrampoline(Object* self)
+{
+    for(unsigned char* t = self->codePage; t < self->codePagePtr; t += sizeof(kTrampoline))
+    {
+        memcpy(t + 2, &self, sizeof(void*));
+    }
+}
+
+void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functionCount)
+{
+    functionCount += 1; // destructor
+
+    Object* self = malloc(size);
+    memcpy(self, super, superSize);
+    self->codePageSize = self->codePageSize + functionCount * sizeof(kTrampoline);
+    self->codePage = mremap(super->codePage, super->codePageSize, self->codePageSize, MREMAP_MAYMOVE);
+    self->codePagePtr = self->codePage + super->codePageSize;
+    free(super);
+
+    mprotect(self->codePage, self->codePageSize, PROT_READ | PROT_WRITE);
+
+    updateTrampoline(self);
+
+    self->delete = Object_trampoline(self, Object_delete, 0);
+
+    return self;
+}
+
+void* Object_override(void* target, void* superTrampoline)
+{
+    memcpy((unsigned char*)superTrampoline + 16, &target, sizeof(void*));
+    return superTrampoline;
 }

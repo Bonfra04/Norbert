@@ -2,6 +2,8 @@
 
 #include <html/html.h>
 
+#define basicScopeList HTML.TagNames.applet, HTML.TagNames.caption, HTML.TagNames.html, HTML.TagNames.table, HTML.TagNames.td, HTML.TagNames.th, HTML.TagNames.marquee, HTML.TagNames.object, HTML.TagNames.template
+
 static type(DOM.Node)* StackOfOpenElements_at(int64_t index, StackOfOpenElements* self)
 {
     return self->data->at(index);
@@ -62,8 +64,6 @@ static bool has_in_scope_specific_str(StackOfOpenElements* self, DOMString tagNa
     return false;
 }
 
-#define basicScopeList HTML.TagNames.applet, HTML.TagNames.caption, HTML.TagNames.html, HTML.TagNames.table, HTML.TagNames.td, HTML.TagNames.th, HTML.TagNames.marquee, HTML.TagNames.object, HTML.TagNames.template
-
 static bool StackOfOpenElements_hasInScopeS(DOMString tagName, StackOfOpenElements* self)
 {
     DOMString base_list[] = { basicScopeList, NULL };
@@ -90,9 +90,16 @@ static void StackOfOpenElements_popUntilPopped(DOMString tagName, StackOfOpenEle
     self->popUntilOneOffPopped((DOMString[]){ tagName, NULL });
 }
 
+static void StackOfOpenElements_delete(StackOfOpenElements* self)
+{
+    self->data->delete();
+    self->super.delete();
+}
+
 StackOfOpenElements* StackOfOpenElements_new()
 {
-    StackOfOpenElements* self = Object_create(sizeof(StackOfOpenElements), 10);
+    StackOfOpenElements* self = ObjectBase(StackOfOpenElements, 10);
+
     self->data = Vector_new();
 
     ObjectFunction(StackOfOpenElements, at, 1);
@@ -106,14 +113,6 @@ StackOfOpenElements* StackOfOpenElements_new()
     ObjectFunction(StackOfOpenElements, popUntilOneOffPopped, 1);
     ObjectFunction(StackOfOpenElements, popUntilPopped, 1);
 
-
-
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
-}
-
-void StackOfOpenElements_delete(StackOfOpenElements* self)
-{
-    Vector_delete(self->data);
-    self->object.destroy();
 }

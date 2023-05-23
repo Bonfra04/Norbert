@@ -3,7 +3,6 @@
 #include <oop/object.h>
 
 #include <html/open_elements.h>
-
 #include <html/tokenizer.h>
 #include <dom.h>
 
@@ -34,7 +33,7 @@ typedef enum HTMLParser_insertion_modes
 
 typedef struct ParserRec
 {
-    Object object;
+    ObjectExtends(Object);
 
     type(DOM.Node)* (*parse)();
 
@@ -57,5 +56,4 @@ typedef struct ParserRec
     } flags;
 } HTMLParser;
 
-HTMLParser* Parser_new(Stream* stream);
-void Parser_delete(HTMLParser* self);
+HTMLParser* HTMLParser_new(WCStream* stream);

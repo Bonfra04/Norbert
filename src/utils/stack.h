@@ -6,7 +6,7 @@
 
 typedef struct StackRec
 {
-    Object object;
+    ObjectExtends(Object);
 
     size_t (*size)();
     

@@ -2,8 +2,7 @@
 
 #include <oop/object.h>
 
-#include <stream/stream.h>
-
+#include <utils/stream/wc_stream.h>
 #include <utils/vector.h>
 #include <utils/wstring.h>
 
@@ -77,13 +76,12 @@ typedef struct CSSToken
 
 typedef struct CSSTokenizer
 {
-    Object object;
+    ObjectExtends(Object);
 
     CSSToken* (*ConsumeToken)();
     void (*DisposeToken)(CSSToken* token);
 
-    Stream* stream;
+    WCStream* stream;
 } CSSTokenizer;
 
-CSSTokenizer* CSSTokenizer_new(Stream* stream);
-void CSSTokenizer_delete(CSSTokenizer* self);
+CSSTokenizer* CSSTokenizer_new(WCStream* stream);

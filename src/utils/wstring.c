@@ -616,9 +616,16 @@ static bool WString_containswsi(wchar_t* other, WString* self)
     return false;
 }
 
+static void WString_delete(WString* self)
+{
+    free(self->data);
+    self->super.delete();
+}
+
 WString* WString_new()
 {
-    WString* self = Object_create(sizeof(WString), 37);
+    WString* self = ObjectBase(WString, 37);
+
     self->data = malloc(sizeof(wchar_t) * WSTRING_CAPACITY);
     self->capacity = WSTRING_CAPACITY;
     self->len = 0;
@@ -668,12 +675,6 @@ WString* WString_new()
     ObjectFunction(WString, containssi, 1);
     ObjectFunction(WString, containswsi, 1);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
-}
-
-void WString_delete(WString* self)
-{
-    free(self->data);
-    self->object.destroy();
 }

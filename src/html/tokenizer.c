@@ -11,9 +11,9 @@
 
 #define matchState(state) case HTMLTokenizer_state_##state:
 
-#define on_wchar(condition) (self->stream->current() == (wchar_t)(uint64_t)(condition))
-#define on_function(condition) (((bool(*)(wchar_t))(condition))(self->stream->current()))
-#define on_wstring(condition) (self->stream->match((wchar_t*)condition, true, false))
+#define on_wchar(condition) (self->stream->Current() == (wchar_t)(uint64_t)(condition))
+#define on_function(condition) (((bool(*)(wchar_t))(condition))(self->stream->Current()))
+#define on_wstring(condition) (self->stream->Match((wchar_t*)condition, true, false))
 #define checker(condition) (_Generic((condition), wchar_t: on_wchar(condition), wchar_t*: on_wstring(condition), default: on_function(condition)))
 #define on(condition) if(checker(condition))
 #define anythingElse() if(1)
@@ -21,11 +21,11 @@
 #define next() goto emit_token
 #define switchTo(target) do { self->state = HTMLTokenizer_state_##target; next(); } while(0)
 #define switchToReturnState() do { self->state = self->returnState; next(); } while(0)
-#define reconsumeIn(target) do { self->stream->reconsume(); switchTo(target); } while(0)
-#define reconsumeInReturnState() do { self->stream->reconsume(); self->state = self->returnState; next(); } while(0)
+#define reconsumeIn(target) do { self->stream->Reconsume(); switchTo(target); } while(0)
+#define reconsumeInReturnState() do { self->stream->Reconsume(); self->state = self->returnState; next(); } while(0)
 
-#define consumeInputCharacter() (self->stream->consume())
-#define currentInputCharacter (self->stream->current())
+#define consumeInputCharacter() (self->stream->Consume())
+#define currentInputCharacter (self->stream->Current())
 
 #define temporaryBufferClear() (self->temporaryBuffer->clear())
 #define temporaryBufferAppend(c) (self->temporaryBuffer->appendwc(c))
@@ -39,7 +39,7 @@
 #define emitToken(ttype, ...) do { enqueueToken(ttype, __VA_ARGS__); goto emit_token; } while(0)
 
 #define emitEOFToken() emitToken(eof);
-#define emitCurrentCharacterToken() emitToken(character, .value = self->stream->current())
+#define emitCurrentCharacterToken() emitToken(character, .value = self->stream->Current())
 
 #define currentTagToken (self->currentToken->as.tag)
 #define currentCommentToken (self->currentToken->as.comment)
@@ -70,12 +70,12 @@ for(size_t i = 0; i < self->temporaryBuffer->length(); i++) \
 
 #define isAppropriateEndTagToken(token) token->as.tag.name->equals(self->lastStartTagName)
 
-void HTMLTokenizer_SwitchTo(HTMLTokenizer_states targetState, HTMLTokenizer* self)
+static void HTMLTokenizer_SwitchTo(HTMLTokenizer_states targetState, HTMLTokenizer* self)
 {
     self->state = targetState;
 }
 
-HTMLToken* HTMLTokenizer_EmitToken(HTMLTokenizer* self)
+static HTMLToken* HTMLTokenizer_EmitToken(HTMLTokenizer* self)
 {
     emit_token:
     if(self->tokensQueue->size() > 0)
@@ -184,7 +184,7 @@ HTMLToken* HTMLTokenizer_EmitToken(HTMLTokenizer* self)
 
                 if(!match)
                 {
-                    self->stream->reconsume();
+                    self->stream->Reconsume();
                     self->temporaryBuffer->popback();
                     break;
                 }
@@ -1915,7 +1915,7 @@ HTMLToken* HTMLTokenizer_EmitToken(HTMLTokenizer* self)
     }
 }
 
-void HTMLTokenizer_DisposeToken(HTMLToken* token, HTMLTokenizer* self)
+static void HTMLTokenizer_DisposeToken(HTMLToken* token, HTMLTokenizer* self)
 {
     if(token == NULL)
     {
@@ -1931,18 +1931,18 @@ void HTMLTokenizer_DisposeToken(HTMLToken* token, HTMLTokenizer* self)
     {
     case HTMLTokenType_start_tag:
     case HTMLTokenType_end_tag:
-        if(token->as.tag.name) WString_delete(token->as.tag.name);
-        if(token->as.tag.attributes) Vector_delete(token->as.tag.attributes);
+        if(token->as.tag.name) token->as.tag.name->delete();
+        if(token->as.tag.attributes) token->as.tag.attributes->delete();
         break;
 
     case HTMLTokenType_doctype:
-        if(token->as.doctype.name) WString_delete(token->as.doctype.name);
-        if(token->as.doctype.public_identifier) WString_delete(token->as.doctype.public_identifier);
-        if(token->as.doctype.system_identifier) WString_delete(token->as.doctype.system_identifier);
+        if(token->as.doctype.name) token->as.doctype.name->delete();
+        if(token->as.doctype.public_identifier) token->as.doctype.public_identifier->delete();
+        if(token->as.doctype.system_identifier) token->as.doctype.system_identifier->delete();
         break;
 
     case HTMLTokenType_comment:
-        if(token->as.comment.data) WString_delete(token->as.comment.data);
+        if(token->as.comment.data) token->as.comment.data->delete();
         break;
 
     default:
@@ -1952,9 +1952,18 @@ void HTMLTokenizer_DisposeToken(HTMLToken* token, HTMLTokenizer* self)
     free(token);
 }
 
-HTMLTokenizer* HTMLTokenizer_new(Stream* stream)
+static void HTMLTokenizer_delete(HTMLTokenizer* self)
 {
-    HTMLTokenizer* self = Object_create(sizeof(HTMLTokenizer), 3);
+    self->temporaryBuffer->delete();
+    self->tokensQueue->delete();
+    self->lastStartTagName->delete();
+    self->super.delete();
+}
+
+HTMLTokenizer* HTMLTokenizer_new(WCStream* stream)
+{
+    HTMLTokenizer* self = ObjectBase(HTMLTokenizer, 3);
+
     self->stream = stream;
     self->state = HTMLTokenizer_state_Data;
     self->returnState = HTMLTokenizer_state_NONE;
@@ -1968,14 +1977,6 @@ HTMLTokenizer* HTMLTokenizer_new(Stream* stream)
     ObjectFunction(HTMLTokenizer, DisposeToken, 1);
     ObjectFunction(HTMLTokenizer, SwitchTo, 1);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
-}
-
-void HTMLTokenizer_delete(HTMLTokenizer* self)
-{
-    WString_delete(self->temporaryBuffer);
-    Queue_delete(self->tokensQueue);
-    WString_delete(self->lastStartTagName);
-    self->object.destroy();
 }

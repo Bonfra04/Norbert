@@ -95,7 +95,7 @@ static void __DOM_Node_delete(type(DOM.Node)* self)
     for (size_t i = 0; i < num_childs; i++)
         ((type(DOM.Node)*)self->childNodes->at(i))->delete(self->childNodes->at(i));
 
-    Vector_delete(self->childNodes);
+    self->childNodes->delete();
     free(self);
 }
 

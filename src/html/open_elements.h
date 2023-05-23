@@ -8,7 +8,7 @@
 
 typedef struct StackOfOpenElements
 {
-    Object object;
+    ObjectExtends(Object);
 
     type(DOM.Node)* (*at)(int64_t index);
     size_t (*length)();
@@ -27,4 +27,3 @@ typedef struct StackOfOpenElements
 } StackOfOpenElements;
 
 StackOfOpenElements* StackOfOpenElements_new();
-void StackOfOpenElements_delete(StackOfOpenElements* self);

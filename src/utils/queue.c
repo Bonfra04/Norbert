@@ -2,12 +2,12 @@
 
 #include <stdlib.h>
 
-size_t Queue_size(Queue* self)
+static size_t Queue_size(Queue* self)
 {
     return self->siz;
 }
 
-void Queue_enqueue(void* value, Queue* self)
+static void Queue_enqueue(void* value, Queue* self)
 {
     queue_node_t* node = (queue_node_t*)malloc(sizeof(queue_node_t));
     node->value = value;
@@ -21,7 +21,7 @@ void Queue_enqueue(void* value, Queue* self)
     self->siz++;
 }
 
-void* Queue_dequeue(Queue* self)
+static void* Queue_dequeue(Queue* self)
 {
     if(self->siz == 0)
         return NULL;
@@ -38,9 +38,18 @@ void* Queue_dequeue(Queue* self)
     return value;
 }
 
+static void Queue_delete(Queue* self)
+{
+    while(self->size() > 0)
+        self->dequeue();
+
+    self->super.delete();
+}
+
 Queue* Queue_new()
 {
-    Queue* self = Object_create(sizeof(Queue), 3);
+    Queue* self = ObjectBase(Queue, 3);
+
     self->front = NULL;
     self->back = NULL;
     self->siz = 0;
@@ -50,14 +59,6 @@ Queue* Queue_new()
     ObjectFunction(Queue, enqueue, 1);
     ObjectFunction(Queue, dequeue, 0);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
-}
-
-void Queue_delete(Queue* self)
-{
-    while(self->size() > 0)
-        self->dequeue();
-
-    self->object.destroy();
 }

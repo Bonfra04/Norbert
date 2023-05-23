@@ -8,7 +8,7 @@
 
 typedef struct VectorRec
 {
-    Object object;
+    ObjectExtends(Object);
 
     size_t (*length)();
     void* (*at)(size_t index);
@@ -29,4 +29,3 @@ typedef struct VectorRec
 } Vector;
 
 Vector* Vector_new();
-void Vector_delete(Vector* self);

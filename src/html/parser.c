@@ -186,7 +186,7 @@ static void insert_character(HTMLParser* self, wchar_t* characters)
         insertNodeAt(textNode, adjustedInsertionLocation);
     }
 
-    WString_delete(data);
+    data->delete();
 }
 
 static void reconstruct_active_formatting_elements()
@@ -1329,7 +1329,7 @@ processMode(InTable)
     assert(false);
 }
 
-type(DOM.Node)* Parser_parse(HTMLParser* self)
+static type(DOM.Node)* HTMLParser_parse(HTMLParser* self)
 {
     do
     {
@@ -1369,9 +1369,17 @@ type(DOM.Node)* Parser_parse(HTMLParser* self)
     return self->document;
 }
 
-HTMLParser* Parser_new(Stream* stream)
+static void HTMLParser_delete(HTMLParser* self)
 {
-    HTMLParser* self = Object_create(sizeof(HTMLParser), 1);
+    self->tokenizer->delete();
+    self->openElements->delete();
+    self->super.delete();
+}
+
+HTMLParser* HTMLParser_new(WCStream* stream)
+{
+    HTMLParser* self = ObjectBase(HTMLParser, 1);
+
     self->tokenizer = HTMLTokenizer_new(stream);
     self->insertionMode = HTMLParser_insertion_mode_Initial;
     self->originalInsertionMode = HTMLParser_insertion_mode_NONE;
@@ -1386,15 +1394,9 @@ HTMLParser* Parser_new(Stream* stream)
     self->flags.framesetOk = true;
     self->flags.scripting = false;
 
-    ObjectFunction(Parser, parse, 0);
+    ObjectFunction(HTMLParser, parse, 0);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
 }
 
-void Parser_delete(HTMLParser* self)
-{
-    HTMLTokenizer_delete(self->tokenizer);
-    StackOfOpenElements_delete(self->openElements);
-    self->object.destroy();
-}

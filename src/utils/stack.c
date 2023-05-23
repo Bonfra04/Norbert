@@ -4,17 +4,17 @@
 
 #define STACK_CAPACITY 16
 
-size_t Stack_size(Stack* self)
+static size_t Stack_size(Stack* self)
 {
     return self->siz;
 }
 
-void* Stack_peek(Stack* self)
+static void* Stack_peek(Stack* self)
 {
     return self->data[self->siz - 1];
 }
 
-void Stack_push(void* value, Stack* self)
+static void Stack_push(void* value, Stack* self)
 {
     if(self->siz == self->capacity)
     {
@@ -25,14 +25,21 @@ void Stack_push(void* value, Stack* self)
     self->data[self->siz++] = value;
 }
 
-void* Stack_pop(Stack* self)
+static void* Stack_pop(Stack* self)
 {
     return self->data[--self->siz];
 }
 
+static void Stack_delete(Stack* self)
+{
+    free(self->data);
+    self->super.delete();
+}
+
 Stack* Stack_new()
 {
-    Stack* self = Object_create(sizeof(Stack), 4);
+    Stack* self = ObjectBase(Stack, 4);
+
     self->data = malloc(sizeof(void*) * STACK_CAPACITY);
     self->capacity = STACK_CAPACITY;
     self->siz = 0;
@@ -43,6 +50,6 @@ Stack* Stack_new()
     ObjectFunction(Stack, pop, 0);
     ObjectFunction(Stack, push, 1);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
 }

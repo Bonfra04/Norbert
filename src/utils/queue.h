@@ -11,9 +11,9 @@ typedef struct queue_node
     struct queue_node* prev;
 } queue_node_t;
 
-typedef struct QueueRec
+typedef struct Queue
 {
-    Object object;
+    ObjectExtends(Object);
 
     size_t (*size)();
     void (*enqueue)(void* value);
@@ -25,4 +25,3 @@ typedef struct QueueRec
 } Queue;
 
 Queue* Queue_new();
-void Queue_delete(Queue* self);

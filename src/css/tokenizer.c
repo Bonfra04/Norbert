@@ -19,17 +19,17 @@
 
 #define consumeAsMuchWhitespaceAsPossible() do { while(isWhitespace(nextCodePoint())) consumeCodePoint(); } while(0)
 
-#define consumeCodePoint() self->stream->consume()
-#define consumeCodePoints(n) self->stream->consume_n(n, NULL)
-#define reconsumeCodePoint() self->stream->reconsume()
+#define consumeCodePoint() self->stream->Consume()
+#define consumeCodePoints(n) self->stream->ConsumeN(n, NULL)
+#define reconsumeCodePoint() self->stream->Reconsume()
 
-#define currentCodePoint() self->stream->current()
-#define nextCodePoint() self->stream->next()
-#define nextCodePoints(s) self->stream->match(s, false, false)
-#define nextCodePointsC(s) self->stream->match(s, true, false)
-#define nextTwoCodePoints() self->stream->peek(1), self->stream->peek(2)
-#define nextThreeCodePoints() self->stream->peek(1), self->stream->peek(2), self->stream->peek(3)
-#define peekCodePoint(n) self->stream->peek(n)
+#define currentCodePoint() self->stream->Current()
+#define nextCodePoint() self->stream->Next()
+#define nextCodePoints(s) self->stream->Match(s, false, false)
+#define nextCodePointsC(s) self->stream->Match(s, true, false)
+#define nextTwoCodePoints() self->stream->Peek(1), self->stream->Peek(2)
+#define nextThreeCodePoints() self->stream->Peek(1), self->stream->Peek(2), self->stream->Peek(3)
+#define peekCodePoint(n) self->stream->Peek(n)
 
 #define on_codepoint(condition) (currentCodePoint() == (CodePoint)(uint64_t)(condition))
 #define on_function(condition) (((bool(*)(CodePoint))(uint64_t)(condition))(currentCodePoint()))
@@ -421,7 +421,7 @@ static CSSToken* consume_ident_like_token(CSSTokenizer* self)
     }
 }
 
-numeric_value_t consume_number(CSSTokenizer* self)
+static numeric_value_t consume_number(CSSTokenizer* self)
 {
     bool is_integer = true;
     WString* repr = WString_new();
@@ -470,7 +470,7 @@ numeric_value_t consume_number(CSSTokenizer* self)
     }
 
     numeric_value_t value = { .value = wcstof(repr->data, NULL), .is_integer = is_integer };
-    WString_delete(repr);
+    repr->delete();
     return value;
 }
 
@@ -671,7 +671,7 @@ static void CSSTokenizer_DisposeToken(CSSToken* token)
     switch(token->type)
     {
         case CSSTokenType_string:
-            WString_delete(token->as.string.value);
+            token->as.string.value->delete();
             break;
         default:
             break;
@@ -680,19 +680,20 @@ static void CSSTokenizer_DisposeToken(CSSToken* token)
     free(token);
 }
 
-CSSTokenizer* CSSTokenizer_new(Stream* stream)
+static void CSSTokenizer_delete(CSSTokenizer* self)
 {
-    CSSTokenizer* self = Object_create(sizeof(CSSTokenizer), 2);
+    self->super.delete();
+}
+
+CSSTokenizer* CSSTokenizer_new(WCStream* stream)
+{
+    CSSTokenizer* self = ObjectBase(CSSTokenizer, 2);
+
     self->stream = stream;
 
     ObjectFunction(CSSTokenizer, ConsumeToken, 0);
     ObjectFunction(CSSTokenizer, DisposeToken, 1);
 
-    Object_prepare(&self->object);
+    Object_prepare((Object*)&self->super);
     return self;
-}
-
-void CSSTokenizer_delete(CSSTokenizer* self)
-{
-    self->object.destroy();
 }

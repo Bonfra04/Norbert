@@ -2,7 +2,7 @@
 
 #include <oop/object.h>
 
-#include <stream/stream.h>
+#include <utils/stream/wc_stream.h>
 #include <utils/wstring.h>
 #include <utils/queue.h>
 #include <utils/vector.h>
@@ -133,7 +133,7 @@ typedef struct HTMLToken
 
 typedef struct HTMLTokenizerRec
 {
-    Object object;
+    ObjectExtends(Object);
 
     HTMLToken* (*EmitToken)();
     void (*DisposeToken)(HTMLToken* token);
@@ -143,11 +143,10 @@ typedef struct HTMLTokenizerRec
     HTMLTokenizer_states returnState;
     WString* temporaryBuffer;
     wchar_t characterReferenceCode;
-    Stream* stream;
+    WCStream* stream;
     Queue* tokensQueue;
     HTMLToken* currentToken;
     WString* lastStartTagName;
 } HTMLTokenizer;
 
-HTMLTokenizer* HTMLTokenizer_new(Stream* stream);
-void HTMLTokenizer_delete(HTMLTokenizer* self);
+HTMLTokenizer* HTMLTokenizer_new(WCStream* stream);
