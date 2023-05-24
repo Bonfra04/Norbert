@@ -7,9 +7,9 @@ static void* Consumable_Consume(Consumable* self)
     assert(0);
 }
 
-static void Consumable_delete(Consumable* self)
+static void Consumable_destructor(Consumable* self)
 {
-    self->super.delete();
+    self->super.destruct();
 }
 
 Consumable* Consumable_new()

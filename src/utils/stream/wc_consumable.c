@@ -1,8 +1,8 @@
 #include <utils/stream/wc_consumable.h>
 
-static void WCConsumable_delete(WCConsumable* self)
+static void WCConsumable_destructor(WCConsumable* self)
 {
-    self->super.delete();
+    self->super.destruct();
 }
 
 WCConsumable* WCConsumable_new()

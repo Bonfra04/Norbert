@@ -1369,11 +1369,11 @@ static type(DOM.Node)* HTMLParser_parse(HTMLParser* self)
     return self->document;
 }
 
-static void HTMLParser_delete(HTMLParser* self)
+static void HTMLParser_destructor(HTMLParser* self)
 {
     self->tokenizer->delete();
     self->openElements->delete();
-    self->super.delete();
+    self->super.destruct();
 }
 
 HTMLParser* HTMLParser_new(WCStream* stream)

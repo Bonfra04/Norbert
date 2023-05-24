@@ -35,14 +35,27 @@ void* Object_trampoline(Object* self, void* target, int argCount)
     return self->codePagePtr - sizeof(kTrampoline);
 }
 
-static void Object_delete(Object* self)
+void Object_delete(Object* self)
 {
+    void (*destructor)(Object*) = (void(*)(Object*))self->codePage;
+    destructor(self);
     int ret = munmap(self->codePage, self->codePageSize);
     assert(!ret);
     free(self);
 }
 
-void* Object_new(size_t size, int functionCount)
+static void Object_destruct()
+{
+}
+
+static void setDestructor(Object* self, void (*destructor)(Object*))
+{
+    memcpy(self->codePage, kTrampoline, sizeof(kTrampoline));
+    memcpy(self->codePage + 2, &self, sizeof(void*));
+    memcpy(self->codePage + 16, &destructor, sizeof(void*));
+}
+
+void* Object_new(size_t size, int functionCount, void (*destructor)(Object* self))
 {
     functionCount += 2; // delete, destructor
 
@@ -51,7 +64,10 @@ void* Object_new(size_t size, int functionCount)
     self->codePage = mmap(NULL, self->codePageSize, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
     self->codePagePtr = self->codePage;
 
+    setDestructor(self, destructor);
+    self->codePagePtr += sizeof(kTrampoline);
     self->delete = Object_trampoline(self, Object_delete, 0);
+    self->destruct = Object_destruct;
 
     return self;
 }
@@ -70,9 +86,9 @@ static void updateTrampoline(Object* self)
     }
 }
 
-void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functionCount)
+void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functionCount, void (*destructor)(Object* self))
 {
-    functionCount += 1; // destructor
+    functionCount += 2; // destructor
 
     Object* self = malloc(size);
     memcpy(self, super, superSize);
@@ -83,9 +99,8 @@ void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functio
 
     mprotect(self->codePage, self->codePageSize, PROT_READ | PROT_WRITE);
 
+    setDestructor(self, destructor);
     updateTrampoline(self);
-
-    self->delete = Object_trampoline(self, Object_delete, 0);
 
     return self;
 }

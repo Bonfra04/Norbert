@@ -1952,12 +1952,12 @@ static void HTMLTokenizer_DisposeToken(HTMLToken* token, HTMLTokenizer* self)
     free(token);
 }
 
-static void HTMLTokenizer_delete(HTMLTokenizer* self)
+static void HTMLTokenizer_destructor(HTMLTokenizer* self)
 {
     self->temporaryBuffer->delete();
     self->tokensQueue->delete();
     self->lastStartTagName->delete();
-    self->super.delete();
+    self->super.destruct();
 }
 
 HTMLTokenizer* HTMLTokenizer_new(WCStream* stream)

@@ -9,9 +9,9 @@ static wchar_t StringWCConsumable_Consume(StringWCConsumable* self)
     return self->buffer[self->pos++];
 }
 
-static void StringWCConsumable_delete(StringWCConsumable* self)
+static void StringWCConsumable_destructor(StringWCConsumable* self)
 {
-    self->super.delete();
+    self->super.destruct();
 }
 
 StringWCConsumable* StringWCConsumable_new(wchar_t* buffer)

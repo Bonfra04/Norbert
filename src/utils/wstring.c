@@ -616,10 +616,10 @@ static bool WString_containswsi(wchar_t* other, WString* self)
     return false;
 }
 
-static void WString_delete(WString* self)
+static void WString_destructor(WString* self)
 {
     free(self->data);
-    self->super.delete();
+    self->super.destruct();
 }
 
 WString* WString_new()

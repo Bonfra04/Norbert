@@ -30,10 +30,10 @@ static void* Stack_pop(Stack* self)
     return self->data[--self->siz];
 }
 
-static void Stack_delete(Stack* self)
+static void Stack_destructor(Stack* self)
 {
     free(self->data);
-    self->super.delete();
+    self->super.destruct();
 }
 
 Stack* Stack_new()

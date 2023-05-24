@@ -38,12 +38,12 @@ static void* Queue_dequeue(Queue* self)
     return value;
 }
 
-static void Queue_delete(Queue* self)
+static void Queue_destructor(Queue* self)
 {
     while(self->size() > 0)
         self->dequeue();
 
-    self->super.delete();
+    self->super.destruct();
 }
 
 Queue* Queue_new()

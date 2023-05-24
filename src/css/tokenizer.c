@@ -680,9 +680,9 @@ static void CSSTokenizer_DisposeToken(CSSToken* token)
     free(token);
 }
 
-static void CSSTokenizer_delete(CSSTokenizer* self)
+static void CSSTokenizer_destructor(CSSTokenizer* self)
 {
-    self->super.delete();
+    self->super.destruct();
 }
 
 CSSTokenizer* CSSTokenizer_new(WCStream* stream)

@@ -68,11 +68,11 @@ static size_t Stream_ReconsumeN(size_t n, Stream* self)
     return i;
 }
 
-static void Stream_delete(Stream* self)
+static void Stream_destructor(Stream* self)
 {
     self->data->delete();
     self->source->delete();
-    self->super.delete();
+    self->super.destruct();
 }
 
 Stream* Stream_new(Consumable* source)

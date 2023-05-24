@@ -90,10 +90,10 @@ static void StackOfOpenElements_popUntilPopped(DOMString tagName, StackOfOpenEle
     self->popUntilOneOffPopped((DOMString[]){ tagName, NULL });
 }
 
-static void StackOfOpenElements_delete(StackOfOpenElements* self)
+static void StackOfOpenElements_destructor(StackOfOpenElements* self)
 {
     self->data->delete();
-    self->super.delete();
+    self->super.destruct();
 }
 
 StackOfOpenElements* StackOfOpenElements_new()

@@ -99,10 +99,10 @@ static void* Vector_find_first(bool (*matcher)(void* value), Vector* self)
     return NULL;
 }
 
-static void Vector_delete(Vector* self)
+static void Vector_destructor(Vector* self)
 {
     free(self->data);
-    self->super.delete();
+    self->super.destruct();
 }
 
 Vector* Vector_new()

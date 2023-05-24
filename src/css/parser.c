@@ -1,9 +1,9 @@
 #include <css/parser.h>
 
-static void CSSParser_delete(CSSParser* self)
+static void CSSParser_destructor(CSSParser* self)
 {
     self->tokenizer->delete();
-    self->super.delete();
+    self->super.destruct();
 }
 
 CSSParser* CSSParser_new(WCStream* stream)

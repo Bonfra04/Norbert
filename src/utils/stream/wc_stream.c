@@ -21,9 +21,9 @@ bool WCStream_Match(wchar_t* str, bool consume, bool case_sensitive, WCStream* s
     return true;
 }
 
-static void WCStream_delete(WCStream* self)
+static void WCStream_destructor(WCStream* self)
 {
-    self->super.delete();
+    self->super.destruct();
 }
 
 WCStream* WCStream_new(WCConsumable* source)
