@@ -21,17 +21,17 @@ void* Object_trampoline(Object* self, void* target, int argCount);
 void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functionCount, void (*destructor)(Object* self));
 void* Object_override(void* target, void* superTrampoline);
 
-#define ObjectFromSuper(superType, type, functionCount, ...) ({                                                                                 \
-superType* super = superType ## _new(__VA_ARGS__);                                                                                              \
-type* self = Object_fromSuper((Object*)&super->super, sizeof(superType), sizeof(type), functionCount, (void(*)(Object*))type ## _destructor);   \
-self->delete = Object_trampoline((Object*)&self->super, Object_delete, 0);                                                                      \
-self->destruct = Object_trampoline((Object*)&self->super, type ## _destructor, 0);                                                              \
+#define ObjectFromSuper(superType, type, functionCount, ...) ({                                                                                     \
+superType* super = superType ## _new(__VA_ARGS__);                                                                                                  \
+type* self = Object_fromSuper((Object*)&super->super, sizeof(superType), sizeof(type), functionCount + 1, (void(*)(Object*))type ## _destructor);   \
+self->delete = self->super.delete;                                                                                                                  \
+self->destruct = Object_trampoline((Object*)&self->super, type ## _destructor, 0);                                                                  \
 self;})
 
-#define ObjectBase(type, functionCount) ({                                                      \
-type* self = Object_new(sizeof(type), functionCount, (void(*)(Object*))type ## _destructor);    \
-self->delete = Object_trampoline((Object*)&self->super, Object_delete, 0);                      \
-self->destruct = Object_trampoline((Object*)&self->super, type ## _destructor, 0);              \
+#define ObjectBase(type, functionCount) ({                                                          \
+type* self = Object_new(sizeof(type), functionCount + 1, (void(*)(Object*))type ## _destructor);    \
+self->delete = self->super.delete;                                                                  \
+self->destruct = Object_trampoline((Object*)&self->super, type ## _destructor, 0);                  \
 self;})
 
 #define ObjectInherit(name) do {                    \

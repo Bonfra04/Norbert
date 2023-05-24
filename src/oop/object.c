@@ -57,7 +57,7 @@ static void setDestructor(Object* self, void (*destructor)(Object*))
 
 void* Object_new(size_t size, int functionCount, void (*destructor)(Object* self))
 {
-    functionCount += 2; // delete, destructor
+    functionCount += 2;
 
     Object* self = malloc(size);
     self->codePageSize = functionCount * sizeof(kTrampoline);
@@ -88,8 +88,6 @@ static void updateTrampoline(Object* self)
 
 void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functionCount, void (*destructor)(Object* self))
 {
-    functionCount += 2; // destructor
-
     Object* self = malloc(size);
     memcpy(self, super, superSize);
     self->codePageSize = self->codePageSize + functionCount * sizeof(kTrampoline);
