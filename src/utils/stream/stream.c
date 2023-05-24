@@ -77,7 +77,7 @@ static void Stream_destructor(Stream* self)
 
 Stream* Stream_new(Consumable* source)
 {
-    Stream* self = ObjectBase(Stream, 8);
+    Stream* self = ObjectBase(Stream, 7);
 
     self->source = source;
     self->data = Vector_new();
