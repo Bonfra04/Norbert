@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-struct __namespace_HTML HTML = {
+struct __HTML HTML = {
     .TagNames = {
     },
     .SpecialTagNames = {
@@ -12,7 +12,7 @@ struct __namespace_HTML HTML = {
 #define add_tag_name(name) do { HTML.TagNames.name = WString_new(); HTML.TagNames.name->appends(#name); } while(0)
 
 __attribute__((constructor))
-static void __namespace_HTML_init()
+static void __HTML_init()
 {
     add_tag_name(applet);
     add_tag_name(area);

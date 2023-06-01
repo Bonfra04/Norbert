@@ -10,11 +10,11 @@
 
 typedef struct adjusted_insertion_location
 {
-    type(DOM.Node)* parent;
+    __DOM_Node* parent;
     size_t index;
 } adjusted_insertion_location_t;
 
-#define lastChild(node) ((adjusted_insertion_location_t){ node, node->childNodes->length()})
+#define lastChild(node) ((adjusted_insertion_location_t){ (__DOM_Node*)node, ((__DOM_Node*)node)->childNodes()->length()})
 #define locationDefault ((adjusted_insertion_location_t){ NULL, 0})
 
 #define matchMode(imode) case HTMLParser_insertion_mode_##imode: process_##imode(self); break
@@ -36,10 +36,9 @@ typedef struct adjusted_insertion_location
 #define currentCharacterToken (self->currentToken->as.character)
 #define currentTagToken self->currentToken->as.tag
 
-#define currentNode (self->openElements->at(-1))
+#define currentNode ((__DOM_Node*)self->openElements->at(-1))
 #define currentDocumentTypeNode (currentNode->as.DocumentType)
-#define currentElementNode (currentNode->as.Element)
-#define appendChild(node, child) node->childNodes->append(child)
+#define currentElementNode ((__DOM_Node_Element*)currentNode)
 
 #define openElementsPush(element) self->openElements->push(element)
 #define openElementsPop() self->openElements->pop()
@@ -51,7 +50,8 @@ typedef struct adjusted_insertion_location
 #define openElementsPopUntilOneOffInclusive(...)  self->openElements->popUntilOneOffPopped((DOMString[]){__VA_ARGS__, NULL})
 
 #define insertCharacter() insert_character(self, NULL)
-#define insertNodeAt(node, location) location.parent->childNodes->insert(location.index, node)
+// #define insertNodeAt(node, location) location.parent->childNodes->insert(location.index, node)
+#define insertNodeAt(node, location) location.parent->appendChild((__DOM_Node*)node)
 #define insertHtmlElementFor(token) insert_html_element(self, token)
 #define insertComment() insert_comment(self, locationDefault)
 #define insertCommentAs(location) insert_comment(self, location)
@@ -61,13 +61,13 @@ typedef struct adjusted_insertion_location
 #define generateImpliedEndTags(exception) generate_implied_end_tags(self, exception)
 #define closePElement() close_p_element(self)
 
-static adjusted_insertion_location_t appropriate_place_for_inserting_node(HTMLParser* self, type(DOM.Node)* overrideTarget)
+static adjusted_insertion_location_t appropriate_place_for_inserting_node(HTMLParser* self, __DOM_Node_Element* overrideTarget)
 {
     // https://html.spec.whatwg.org/#appropriate-place-for-inserting-a-node
 
     // 1. If there was an override target specified, then let target be the override target.
     //    Otherwise, let target be the current node.
-    type(DOM.Node)* target = overrideTarget ?: currentNode;
+    auto target = (__DOM_Node*)overrideTarget ?: currentNode;
 
     // 2. Determine the adjusted insertion location using the first matching steps from the following list:
     adjusted_insertion_location_t location;
@@ -82,7 +82,7 @@ static adjusted_insertion_location_t appropriate_place_for_inserting_node(HTMLPa
     {
         // Let adjusted insertion location be inside target, after its last child (if any).
         location.parent = target;
-        location.index = target->childNodes->length();
+        location.index = target->childNodes()->length();
     }
 
     // 3. If the adjusted insertion location is inside a template element, let it instead be inside the template element's template contents, after its last child (if any).
@@ -94,23 +94,23 @@ static adjusted_insertion_location_t appropriate_place_for_inserting_node(HTMLPa
 
 static void insert_comment(HTMLParser* self, adjusted_insertion_location_t position)
 {
-    WString* data = currentCommentToken.data;
-    adjusted_insertion_location_t adjustedInsertionLocation = position.parent ? position : appropriate_place_for_inserting_node(self, NULL);
-    type(DOM.Node)* comment = DOM.Node.Comment.new(adjustedInsertionLocation.parent->ownerDocument, data);
+    auto data = currentCommentToken.data;
+    auto adjustedInsertionLocation = position.parent ? position : appropriate_place_for_inserting_node(self, NULL);
+    auto comment = DOM.Comment.new(adjustedInsertionLocation.parent->ownerDocument(), data);
     insertNodeAt(comment, adjustedInsertionLocation);
 }
 
-static type(DOM.Node)* create_element_for(HTMLToken* token, type(DOM.Node)* intendedParent)
+static __DOM_Node_Element* create_element_for(HTMLToken* token, __DOM_Node* intendedParent)
 {
     // https://html.spec.whatwg.org/#create-an-element-for-the-token
 
     // TODO 1, 2
 
     // 3. Let document be intended parent's node document.
-    type(DOM.Node)* document = intendedParent->ownerDocument;
+    auto document = intendedParent->ownerDocument();
 
     // 4. Let local name be the tag name of the token.
-    DOMString localName = token->as.tag.name;
+    auto localName = token->as.tag.name;
 
     // 5. Let is be the value of the "is" attribute in the given token, if such an attribute exists, or null otherwise.
     // TODO
@@ -118,7 +118,7 @@ static type(DOM.Node)* create_element_for(HTMLToken* token, type(DOM.Node)* inte
     // TODO 6
 
     // 7. If definition is non-null and the parser was not created as part of the HTML fragment parsing algorithm, then let will execute script be true. Otherwise, let it be false
-    bool will_execute_script = false; // TODO
+    auto will_execute_script = false; // TODO
 
     // 8. If will execute script is true, then:
     if(will_execute_script)
@@ -127,14 +127,14 @@ static type(DOM.Node)* create_element_for(HTMLToken* token, type(DOM.Node)* inte
     }
 
     // 9. Let element be the result of creating an element given document, localName, given namespace, null, and is. If will execute script is true, set the synchronous custom elements flag; otherwise, leave it unset.
-    type(DOM.Node)* element = DOM.create_element(document, localName); // TODO
+    auto element = DOM.create_element(document, localName); // TODO
 
     // 10. Append each attribute in the given token to element.
     for(size_t i = 0; i < token->as.tag.attributes->length(); i++)
     {
         HTMLTokenAttribute* attribute = token->as.tag.attributes->at(i);
-        type(DOM.Node)* attr = DOM.Node.Attr.new(document, attribute->name, attribute->value);
-        DOM.NamedNodeMap.setNamedItem(element->as.Element.attributes, attr);
+        auto attr = DOM.Attr.new(document, attribute->name, attribute->value);
+        element->attributes()->setNamedItem(attr);
     }
 
     // 11. If will execute script is true, then:
@@ -149,15 +149,15 @@ static type(DOM.Node)* create_element_for(HTMLToken* token, type(DOM.Node)* inte
     return element;
 }
 
-static type(DOM.Node)* insert_foreign_element(HTMLParser* self, HTMLToken* token)
+static __DOM_Node_Element* insert_foreign_element(HTMLParser* self, HTMLToken* token)
 {
-    type(DOM.Node)* element = create_element_for(token, currentNode);
-    appendChild(currentNode, element);
+    auto element = create_element_for(token, currentNode);
+    currentNode->appendChild(element);
     openElementsPush(element);
     return element;
 }
 
-static type(DOM.Node)* insert_html_element(HTMLParser* self, HTMLToken* token)
+static __DOM_Node_Element* insert_html_element(HTMLParser* self, HTMLToken* token)
 {
     return insert_foreign_element(self, token);
 }
@@ -165,7 +165,7 @@ static type(DOM.Node)* insert_html_element(HTMLParser* self, HTMLToken* token)
 static void insert_character(HTMLParser* self, wchar_t* characters)
 {
     adjusted_insertion_location_t adjustedInsertionLocation = appropriate_place_for_inserting_node(self, NULL);
-    if(adjustedInsertionLocation.parent->nodeType == DOM.Node.DOCUMENT_NODE)
+    if(adjustedInsertionLocation.parent->nodeType() == DOM.Node.DOCUMENT_NODE)
         return;
     
     WString* data = WString_new();
@@ -174,15 +174,15 @@ static void insert_character(HTMLParser* self, wchar_t* characters)
     else
         data->appendwc(currentCharacterToken.value);
 
-    Vector* siblings = adjustedInsertionLocation.parent->childNodes;
-    if(siblings->length() > 0 && ((type(DOM.Node)*)siblings->at(adjustedInsertionLocation.index - 1))->nodeType == DOM.Node.TEXT_NODE)
+    auto siblings = adjustedInsertionLocation.parent->childNodes();
+    if(siblings->length() > 0 && siblings->item(adjustedInsertionLocation.index - 1)->nodeType() == DOM.Node.TEXT_NODE)
     {
-        type(DOM.Node)* textNode = ((type(DOM.Node)*)siblings->at(adjustedInsertionLocation.index - 1));
-        textNode->as.Text.wholeText->append(data);
+        auto textNode = (__DOM_Node_Text*)siblings->item(adjustedInsertionLocation.index - 1);
+        textNode->_wholeText->append(data);
     }
     else
     {
-        type(DOM.Node)* textNode = DOM.Node.Text.new(adjustedInsertionLocation.parent->ownerDocument, data);
+        auto textNode = DOM.Text.new(adjustedInsertionLocation.parent->ownerDocument(), data);
         insertNodeAt(textNode, adjustedInsertionLocation);
     }
 
@@ -199,7 +199,7 @@ static void generate_implied_end_tags(HTMLParser* self, DOMString exception)
 {
     DOMString implied[] = { HTML.TagNames.dd, HTML.TagNames.dt, HTML.TagNames.li, HTML.TagNames.optgroup, HTML.TagNames.option, HTML.TagNames.p, HTML.TagNames.rb, HTML.TagNames.rp, HTML.TagNames.rt, HTML.TagNames.rtc, NULL };
 
-    while(currentElementNode.localName->equalsOneOff(implied) && (!exception || currentElementNode.localName->equals(exception)))
+    while(currentElementNode->localName()->equalsOneOff(implied) && (!exception || !currentElementNode->localName()->equals(exception)))
         openElementsPop();
 }
 
@@ -207,10 +207,10 @@ static void close_p_element(HTMLParser* self)
 {
     generateImpliedEndTags(HTML.TagNames.p);
     
-    if(currentElementNode.localName->equals(HTML.TagNames.p))
+    if(!currentElementNode->localName()->equals(HTML.TagNames.p))
         parser_error("generic");
 
-    while(currentElementNode.localName->equals(HTML.TagNames.p))
+    while(!currentElementNode->localName()->equals(HTML.TagNames.p))
         openElementsPop();
     openElementsPop();
 }
@@ -254,15 +254,15 @@ processMode(Initial)
             parser_error("generic");
         }
 
-        type(DOM.Node)* doctype = DOM.Node.DocumentType.new(self->document, currentDoctypeToken.name, currentDoctypeToken.public_identifier, currentDoctypeToken.system_identifier);
-        appendChild(self->document, doctype);
+        auto doctype = DOM.DocumentType.new(self->document, currentDoctypeToken.name, currentDoctypeToken.public_identifier, currentDoctypeToken.system_identifier);
+        ((__DOM_Node*)self->document)->appendChild(doctype);
 
-        self->document->as.Document.mode = no_quirks;
+        self->document->_mode = no_quirks;
         if ( /* TODO not an iframe srcdoc*/ self->flags.parserCannotChangeTheMode == false)
         {
             // TODO: case insentiveness
             if ((currentDoctypeToken.forceQuirks)
-                || currentDoctypeToken.name->equalss("html")
+                || !currentDoctypeToken.name->equalss("html")
                 || (currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->equalssi("-//W3O//DTD W3 HTML Strict 3.0//EN//"))
                 || (currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->equalssi("-/W3C/DTD HTML 4.0 Transitional/EN"))
                 || (currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->equalssi("HTML"))
@@ -325,16 +325,16 @@ processMode(Initial)
                 || (currentDoctypeToken.system_identifier == NULL && currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->startswithsi("-//W3C//DTD HTML 4.01 Frameset//"))
                 || (currentDoctypeToken.system_identifier == NULL && currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->startswithsi("-//W3C//DTD HTML 4.01 Transitional//"))
             )
-                self->document->as.Document.mode = quirks;
+                self->document->_mode = quirks;
             else if (
                 (currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->startswithsi("-//W3C//DTD XHTML 1.0 Frameset//"))
                 || (currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->startswithsi("-//W3C//DTD XHTML 1.0 Transitional//"))
                 || (currentDoctypeToken.system_identifier && currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->startswithsi("-//W3C//DTD HTML 4.01 Frameset//"))
                 || (currentDoctypeToken.system_identifier && currentDoctypeToken.public_identifier && currentDoctypeToken.public_identifier->startswithsi("-//W3C//DTD HTML 4.01 Transitional//"))
             )
-                self->document->as.Document.mode = limited_quirks;
+                self->document->_mode = limited_quirks;
             else
-                self->document->as.Document.mode = no_quirks;
+                self->document->_mode = no_quirks;
         }
 
         switchTo(BeforeHTML);
@@ -345,7 +345,7 @@ processMode(Initial)
         // TODO: not an iframe srcdoc document
         if(self->flags.parserCannotChangeTheMode == false)
         {
-            self->document->as.Document.mode = quirks;
+            self->document->_mode = quirks;
         }
 
         switchTo(BeforeHTML);
@@ -374,8 +374,8 @@ processMode(BeforeHTML)
     }
     on(start_tag && oneOff(HTML.TagNames.html))
     {
-        type(DOM.Node)* html = create_element_for(self->currentToken, self->document);
-        appendChild(self->document, html);
+        auto html = create_element_for(self->currentToken, (__DOM_Node*)self->document);
+        ((__DOM_Node*)self->document)->appendChild(html);
         openElementsPush(html);
         switchTo(BeforeHead);
         return;
@@ -392,8 +392,8 @@ processMode(BeforeHTML)
     }
     anythingElse()
     {
-        type(DOM.Node)* html = DOM.create_element(self->document, HTML.TagNames.html);
-        appendChild(self->document, html);
+        auto html = DOM.create_element(self->document, HTML.TagNames.html);
+        ((__DOM_Node*)self->document)->appendChild(html);
         openElementsPush(html);
         switchTo(BeforeHead);
         reprocessToken();
@@ -426,7 +426,7 @@ processMode(BeforeHead)
     }
     on(start_tag && oneOff(HTML.TagNames.head))
     {
-        type(DOM.Node)* head = insertHtmlElementFor(self->currentToken);
+        auto head = insertHtmlElementFor(self->currentToken);
         self->head = head;
         switchTo(InHead);
         return;
@@ -444,7 +444,7 @@ processMode(BeforeHead)
     anythingElse()
     {
         HTMLToken dummyHead = { .type = HTMLTokenType_start_tag, .as.start_tag = { .name = HTML.TagNames.head, .selfClosing = false, .attributes = Vector_new() } };
-        type(DOM.Node)* head = insertHtmlElementFor(&dummyHead);
+        auto head = insertHtmlElementFor(&dummyHead);
         self->head = head;
         switchTo(InHead);
         reprocessToken();
@@ -731,11 +731,11 @@ processMode(InBody)
         {
             WString* name = ((HTMLTokenAttribute*)currentTagToken.attributes->at(i))->name;
             WString* value = ((HTMLTokenAttribute*)currentTagToken.attributes->at(i))->value;
-
-            if(DOM.NamedNodeMap.getNamedItem(self->openElements->at(0)->as.Element.attributes, name) == NULL)
+            auto element = self->openElements->at(0);
+            if(element->attributes()->getNamedItem(name) == NULL)
             {
-                type(DOM.Node)* attr = DOM.Node.Attr.new(self->openElements->at(0)->ownerDocument, name, value);
-                DOM.NamedNodeMap.setNamedItem(self->openElements->at(0)->as.Element.attributes, attr);
+                auto attr = DOM.Attr.new(((__DOM_Node*)element)->ownerDocument(), name, value);
+                element->attributes()->setNamedItem(attr);
             }
         }
 
@@ -760,14 +760,15 @@ processMode(InBody)
         self->flags.framesetOk = false;
         for (size_t i = 0; i < currentTagToken.attributes->length(); i++)
         {
-                WString* name = ((HTMLTokenAttribute*)currentTagToken.attributes->at(i))->name;
-                WString* value = ((HTMLTokenAttribute*)currentTagToken.attributes->at(i))->value;
+            WString* name = ((HTMLTokenAttribute*)currentTagToken.attributes->at(i))->name;
+            WString* value = ((HTMLTokenAttribute*)currentTagToken.attributes->at(i))->value;
+            auto element = self->openElements->at(1);
 
-                if (DOM.NamedNodeMap.getNamedItem(self->openElements->at(1)->as.Element.attributes, name) == NULL)
-                {
-                    type(DOM.Node)* attr = DOM.Node.Attr.new(self->openElements->at(1)->ownerDocument, name, value);
-                    DOM.NamedNodeMap.setNamedItem(self->openElements->at(1)->as.Element.attributes, attr);
-                }
+            if(element->attributes()->getNamedItem(name) == NULL)
+            {
+                auto attr = DOM.Attr.new(((__DOM_Node*)element)->ownerDocument(), name, value);
+                element->attributes()->setNamedItem(attr);
+            }
         }
 
         return;
@@ -895,7 +896,7 @@ processMode(InBody)
             closePElement();
         }
 
-        if(currentElementNode.localName->equalsOneOff((DOMString[]){HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6}))
+        if(currentElementNode->localName()->equalsOneOff((DOMString[]){HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6}))
         {
             parser_error("generic");
             openElementsPop();
@@ -925,12 +926,12 @@ processMode(InBody)
 
         for (int64_t i = self->openElements->length() - 1; i >= 0; i--)
         {
-            type(DOM.Node)* node = self->openElements->at(i);
+            auto node = self->openElements->at(i);
 
-            if(node->as.Element.localName->equals(HTML.TagNames.li))
+            if(node->localName()->equals(HTML.TagNames.li))
             {
                 generateImpliedEndTags(HTML.TagNames.li);
-                if(currentElementNode.localName->equals(HTML.TagNames.li))
+                if(!currentElementNode->localName()->equals(HTML.TagNames.li))
                 {
                     parser_error("generic");
                 }
@@ -938,7 +939,7 @@ processMode(InBody)
                 break;
             }
 
-            if(node->as.Element.localName->equalsOneOff(HTML.SpecialTagNames) && !node->as.Element.localName->equalsOneOff((DOMString[]){HTML.TagNames.address, HTML.TagNames.div, HTML.TagNames.p}))
+            if(node->localName()->equalsOneOff(HTML.SpecialTagNames) && !node->localName()->equalsOneOff((DOMString[]){HTML.TagNames.address, HTML.TagNames.div, HTML.TagNames.p}))
             {
                 break;
             }
@@ -958,29 +959,29 @@ processMode(InBody)
     
         for (int64_t i = self->openElements->length() - 1; i >= 0; i--)
         {
-            type(DOM.Node)* node = self->openElements->at(i);
+            auto node = self->openElements->at(i);
 
-            if(node->as.Element.localName->equals(HTML.TagNames.dd))
+            if(node->localName()->equals(HTML.TagNames.dd))
             {
                 generateImpliedEndTags(HTML.TagNames.dd);
-                if(currentElementNode.localName->equals(HTML.TagNames.dd))
+                if(!currentElementNode->localName()->equals(HTML.TagNames.dd))
                 {
                     parser_error("generic");
                 }
                 openElementsPopUntilInclusive(HTML.TagNames.dd);
                 break;
             }
-            if(node->as.Element.localName->equals(HTML.TagNames.dt))
+            if(node->localName()->equals(HTML.TagNames.dt))
             {
                 generateImpliedEndTags(HTML.TagNames.dt);
-                if(currentElementNode.localName->equals(HTML.TagNames.dt))
+                if(!currentElementNode->localName()->equals(HTML.TagNames.dt))
                 {
                     parser_error("generic");
                 }
                 openElementsPopUntilInclusive(HTML.TagNames.dt);
                 break;
             }
-            if(node->as.Element.localName->equalsOneOff(HTML.SpecialTagNames) && !node->as.Element.localName->equalsOneOff((DOMString[]){HTML.TagNames.address, HTML.TagNames.div, HTML.TagNames.p}))
+            if(node->localName()->equalsOneOff(HTML.SpecialTagNames) && !node->localName()->equalsOneOff((DOMString[]){HTML.TagNames.address, HTML.TagNames.div, HTML.TagNames.p}))
             {
                 break;
             }
@@ -1019,7 +1020,7 @@ processMode(InBody)
         else
         {
             generateImpliedEndTags(NULL);
-            if(currentElementNode.localName->equals(currentTagToken.name))
+            if(!currentElementNode->localName()->equals(currentTagToken.name))
             {
                 parser_error("generic");
             }
@@ -1049,7 +1050,7 @@ processMode(InBody)
         }
 
         generateImpliedEndTags(HTML.TagNames.li);
-        if(currentElementNode.localName->equals(HTML.TagNames.li))
+        if(!currentElementNode->localName()->equals(HTML.TagNames.li))
         {
             parser_error("generic");
         }
@@ -1065,12 +1066,14 @@ processMode(InBody)
         }
 
         generateImpliedEndTags(currentTagToken.name);
-        if(currentElementNode.localName->equals(currentTagToken.name))
+        if(!currentElementNode->localName()->equals(currentTagToken.name))
+        {
             parser_error("generic");
+        }
         openElementsPopUntilInclusive(currentTagToken.name);
         return;
     }
-    on(start_tag && oneOff(HTML.TagNames.h1, HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6))
+    on(end_tag && oneOff(HTML.TagNames.h1, HTML.TagNames.h2, HTML.TagNames.h3, HTML.TagNames.h4, HTML.TagNames.h5, HTML.TagNames.h6))
     {
         if(!OpenElementsHasInScope(HTML.TagNames.h1)
             && !OpenElementsHasInScope(HTML.TagNames.h2)
@@ -1085,7 +1088,7 @@ processMode(InBody)
         }
 
         generateImpliedEndTags(NULL);
-        if(currentElementNode.localName->equals(currentTagToken.name))
+        if(!currentElementNode->localName()->equals(currentTagToken.name))
         {
             parser_error("generic");
         }
@@ -1099,7 +1102,7 @@ processMode(InBody)
     // TODO: open/close "applet", "marquee", "object"
     on(start_tag && oneOff(HTML.TagNames.table))
     {
-        if(self->document->as.Document.mode != quirks && OpenElementsHasInButtonScope(HTML.TagNames.p))
+        if(self->document->mode() != quirks && OpenElementsHasInButtonScope(HTML.TagNames.p))
         {
             closePElement();
         }
@@ -1188,18 +1191,18 @@ processMode(InBody)
         size_t len = self->openElements->length();
         for(int64_t i = len - 1; i >= 0; i--)
         {
-            type(DOM.Node)* node = self->openElements->at(i);
-            if(node->as.Element.localName->equals(currentTagToken.name))
+            auto node = self->openElements->at(i);
+            if(node->localName()->equals(currentTagToken.name))
             {
                 generateImpliedEndTags(currentTagToken.name);
-                if(currentElementNode.localName->equals(currentTagToken.name))
+                if(!currentElementNode->localName()->equals(currentTagToken.name))
                 {
                     parser_error("generic");
                 }
                 openElementsPopUntilInclusive(currentTagToken.name);
                 break;
             }
-            else if(node->as.Element.localName->equalsOneOff(HTML.SpecialTagNames))
+            else if(node->localName()->equalsOneOff(HTML.SpecialTagNames))
             {
                 parser_error("generic");
                 return;
@@ -1298,7 +1301,7 @@ processMode(Text)
     on(eof)
     {
         parser_error("generic");
-        if(currentElementNode.localName->equals(HTML.TagNames.script))
+        if(currentElementNode->localName()->equals(HTML.TagNames.script))
         {
             // TODO: set its already started flag to true
         }
@@ -1329,7 +1332,7 @@ processMode(InTable)
     assert(false);
 }
 
-static type(DOM.Node)* HTMLParser_parse(HTMLParser* self)
+static __DOM_Node_Document* HTMLParser_parse(HTMLParser* self)
 {
     do
     {
@@ -1384,7 +1387,7 @@ HTMLParser* HTMLParser_new(WCStream* stream)
     self->insertionMode = HTMLParser_insertion_mode_Initial;
     self->originalInsertionMode = HTMLParser_insertion_mode_NONE;
     self->currentToken = NULL;
-    self->document = DOM.Node.Document.new();
+    self->document = DOM.Document.new();
     self->head = NULL;
     self->openElements = StackOfOpenElements_new();
     self->templateInsertionModes = Stack_new();

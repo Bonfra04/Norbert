@@ -4,7 +4,7 @@
 
 #include <html/open_elements.h>
 #include <html/tokenizer.h>
-#include <dom.h>
+#include <html/dom.h>
 
 #include <utils/stack.h>
 
@@ -35,15 +35,15 @@ typedef struct ParserRec
 {
     ObjectExtends(Object);
 
-    type(DOM.Node)* (*parse)();
+    __DOM_Node_Document* (*parse)();
 
     HTMLTokenizer* tokenizer;
     HTMLParser_insertion_modes insertionMode;
     HTMLParser_insertion_modes originalInsertionMode;
     
     HTMLToken* currentToken;
-    type(DOM.Node)* document;
-    type(DOM.Node)* head;
+    __DOM_Node_Document* document;
+    __DOM_Node_Element* head;
     StackOfOpenElements* openElements;
     Stack* templateInsertionModes;
 

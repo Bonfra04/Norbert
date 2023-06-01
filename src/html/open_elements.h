@@ -2,7 +2,7 @@
 
 #include <oop/object.h>
 
-#include <dom.h>
+#include <html/dom.h>
 
 #include <utils/vector.h>
 
@@ -10,11 +10,11 @@ typedef struct StackOfOpenElements
 {
     ObjectExtends(Object);
 
-    type(DOM.Node)* (*at)(int64_t index);
+    __DOM_Node_Element* (*at)(int64_t index);
     size_t (*length)();
-    void (*push)(type(DOM.Node)* node);
+    void (*push)(__DOM_Node_Element* node);
     void (*pop)();
-    void (*remove)(type(DOM.Node)* node);
+    void (*remove)(__DOM_Node_Element* node);
     bool (*contains)(DOMString tagName);
 
     bool (*hasInScopeS)(DOMString tagName);

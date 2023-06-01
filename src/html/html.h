@@ -1,10 +1,10 @@
 #pragma once
 
-#include <dom.h>
+#include <html/dom.h>
 
-struct __namespace_HTML
+struct __HTML
 {
-    struct __namespace_HTML_TagNames
+    struct __HTML_TagNames
     {
         DOMString address;
         DOMString applet;
@@ -102,4 +102,4 @@ struct __namespace_HTML
     DOMString SpecialTagNames[83];
 };
 
-extern struct __namespace_HTML HTML;
+extern struct __HTML HTML;
