@@ -22,6 +22,8 @@ typedef struct VectorRec
 
     void* (*find_first)(bool (*matcher)(void* value));
 
+    void** (*condense)();
+
     void** data;
     size_t capacity;
     size_t len;

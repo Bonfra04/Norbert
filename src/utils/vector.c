@@ -99,6 +99,13 @@ static void* Vector_find_first(bool (*matcher)(void* value), Vector* self)
     return NULL;
 }
 
+static void** Vector_condense(Vector* self)
+{
+    void** data = malloc(sizeof(void*) * self->len);
+    memcpy(data, self->data, sizeof(void*) * self->len);
+    return data;
+}
+
 static void Vector_destructor(Vector* self)
 {
     free(self->data);
@@ -124,6 +131,8 @@ Vector* Vector_new()
     ObjectFunction(Vector, remove_first, 1);
 
     ObjectFunction(Vector, find_first, 1);
+
+    ObjectFunction(Vector, condense, 0);
 
     Object_prepare((Object*)&self->super);
     return self;
