@@ -14,6 +14,7 @@ typedef struct WStringRec
     void (*clear)();
     wchar_t (*at)(size_t index);
     struct WStringRec* (*substr)(size_t start, size_t length);
+    struct WStringRec* (*copy)();
 
     void (*appendwc)(wchar_t c);
     void (*appendc)(char c);

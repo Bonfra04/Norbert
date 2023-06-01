@@ -107,6 +107,13 @@ static WString* WString_substr(size_t start, size_t length, WString* self)
     return substr;
 }
 
+static WString* WString_copy(WString* self)
+{
+    WString* new = WString_new();
+    new->append(self);
+    return new;
+}
+
 static bool WString_equals(WString* other, WString* self)
 {
     if(other->len != self->len)
@@ -624,7 +631,7 @@ static void WString_destructor(WString* self)
 
 WString* WString_new()
 {
-    WString* self = ObjectBase(WString, 37);
+    WString* self = ObjectBase(WString, 38);
 
     self->data = malloc(sizeof(wchar_t) * WSTRING_CAPACITY);
     self->capacity = WSTRING_CAPACITY;
@@ -636,6 +643,7 @@ WString* WString_new()
     ObjectFunction(WString, clear, 0);
     ObjectFunction(WString, at, 1);
     ObjectFunction(WString, substr, 2);
+    ObjectFunction(WString, copy, 0);
 
     ObjectFunction(WString, appendwc, 1);
     ObjectFunction(WString, appendc, 1);
