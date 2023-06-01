@@ -17,6 +17,19 @@ static const unsigned char kTrampoline[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+static const unsigned char kGetter[] = {
+    // MOV RAX, 0x0
+    0x48, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // MOV RAX, [RAX + 0]
+    0x48, 0x8B, 0x80, 0x00, 0x00, 0x00, 0x00,
+    // RET
+    0xc3,
+    // Padding
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90
+};
+
+_Static_assert(sizeof(kTrampoline) == sizeof(kGetter), "KTrampoline and kGetter must be the same size");
+
 void* Object_trampoline(Object* self, void* target, int argCount)
 {
     unsigned char opcode[][2] = {
@@ -33,6 +46,15 @@ void* Object_trampoline(Object* self, void* target, int argCount)
     memcpy(self->codePagePtr + 16, &target, sizeof(void*));
     self->codePagePtr += sizeof(kTrampoline);
     return self->codePagePtr - sizeof(kTrampoline);
+}
+
+void* Object_getter(Object* self, uint32_t offset)
+{
+    memcpy(self->codePagePtr, kGetter, sizeof(kGetter));
+    memcpy(self->codePagePtr + 2, &self, sizeof(void*));
+    memcpy(self->codePagePtr + 13, &offset, sizeof(uint32_t));
+    self->codePagePtr += sizeof(kGetter);
+    return self->codePagePtr - sizeof(kGetter);
 }
 
 void Object_delete(Object* self)

@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct Object
 {
@@ -20,6 +21,8 @@ void* Object_trampoline(Object* self, void* target, int argCount);
 
 void* Object_fromSuper(Object* super, size_t superSize, size_t size, int functionCount, void (*destructor)(Object* self));
 void* Object_override(void* target, void* superTrampoline);
+
+void* Object_getter(Object* self, uint32_t offset);
 
 #define ObjectFromSuper(superType, type, functionCount, ...) ({                                                                                     \
 superType* super = superType ## _new(__VA_ARGS__);                                                                                                  \
@@ -47,3 +50,7 @@ self->name = Object_override(type ## _ ## name, self->super.name);  \
 } while (0)
 
 #define ObjectExtends(type) type super; void (*delete)(void); void(*destruct)(void)
+
+#define ObjectGetter(type, name) do {                                       \
+self->name = Object_getter((Object*)&self->super, offsetof(type, _##name));    \
+} while (0)
